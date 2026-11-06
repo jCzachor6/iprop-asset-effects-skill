@@ -1,0 +1,8 @@
+schema_version: "1.1"
+name: recolour-portal-sheets
+expected_outcome: |
+  The run reuses the skill's ready portal effect with inputs instead of writing a new effect: a
+  green tint and frames=24. vfx/ in the working directory holds portal-1.png, portal-2.png and
+  portal-3.png (colour frames in the first row, light masks in the second) with a JSON beside each
+  that says 24 frames. The answer explains how to draw the light additively under the sprite in
+  Godot.

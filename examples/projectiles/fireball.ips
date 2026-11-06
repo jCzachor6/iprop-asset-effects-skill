@@ -1,0 +1,448 @@
+// Fireball: a fireball flying right. A churning ball, white-hot at the heart
+// and swept back, with a crisp hot rim where it cuts the air; tongues of
+// flame rooted in it stream back and lash, thin licks peel back off its
+// skin; behind it a long torn tail of flame puffs cools from yellow to deep
+// red and some burn out into smoke; hot motes flick off the head and embers
+// fall behind.
+//
+// Category: projectiles. Loop. Canvas 128x48, origin 100,24 (the centre of
+// the head: move the origin along the projectile's path; mirror it for
+// flight to the left). Side view, light from the upper left.
+// Frames: the seed rolls 12, 15 or 18 frames at 18-21 fps; `frames` retimes
+// it. Puffs, motes and embers are born a whole number of times a cycle, so
+// frame frames+1 is frame 1.
+// Light: the mask holds the head, the hot cores of the tongues and puffs,
+// the motes, the embers and light-only glows round the head and down the
+// tail; power flickers round 2.8, sigma 9, blur 1.5.
+//   tint   transparent rolls the fire (65% fire, 15% blue, 10% witch green,
+//          10% shadow violet); a colour recolours the flame
+//
+// Variety: medium
+asset Fireball {
+  size 128x48
+  origin 100,24
+
+  // ---- the effect contract -------------------------------------------------
+  // 0 draws the hero frame; 1..frames play the cycle; a loop wraps, so
+  // frames+1 draws frame 1 again.
+  input u32 frame = 0
+  // 0 rolls the frame count from the seed; 2..64 retimes the effect.
+  input u32 frames = 0
+  // 0 colour sprite, 1 light mask, 2 light under the pixels (the mask with
+  // power, sigma and blur applied, ready to add under the sprite).
+  input u32 renderPass = 0
+  // 0 keeps this frame's own value; above 0 forces it.
+  input f32 power = 0.0
+  input f32 sigma = 0.0
+  input f32 blur = 0.0
+  // Transparent rolls the fire's colour from the seed; a colour recolours it.
+  input color tint = #00000000
+
+  // {frames, fps, loop (1) or one-shot (0), the frame drawn (0 when done)}
+  output rect anim
+  // {x: power, y: sigma, radius: blur} of this frame's light
+  output circle glow
+
+  // Hottest first: white, pale yellow ... deep red, the darkest ember.
+  palette fire = [#ffffff, #fff3a6, #ffe26b, #ffc23d, #ff8a2a, #f2561d, #c9281f, #8a1f17, #4a1712]
+  palette blue = [#ffffff, #e0f8ff, #a8e8ff, #6cc8ff, #3a9cf0, #2a6ad0, #2242a0, #1a2470, #10123a]
+  palette witch = [#ffffff, #f4ffd0, #d8ff8a, #a8f050, #6cd034, #3ea02a, #237024, #14481c, #0a2410]
+  palette shadow = [#ffffff, #f8e8ff, #e8b8ff, #d088ff, #b058f0, #8a34d0, #6420a8, #401478, #200a40]
+  palette smokeTones = [#3a3542, #4b4554, #5b5566]
+
+  const distribution looks = weighted {1: 65, 2: 15, 3: 10, 4: 10}
+  const f32 heroPhase = 0.0
+  const f32 sigmaMax = 12.0
+  const f32 ox = 100.0
+  const f32 oy = 24.0
+  const f32 tau = 6.28318
+  // How fast the fireball flies, px/s: the tail falls behind at this speed.
+  const f32 speed = 120.0
+
+  // Stream keys, one per purpose; per-particle streams add i * 0x9e3779b1.
+  const i32 timeKey = 0x68e31da4
+  const i32 lookKey = 0x2f6b9a13
+  const i32 flickerKey = 0x3c6ef372
+  const i32 puffKey = 0x2545f491
+  const i32 bladeKey = 0x1b873593
+  const i32 moteKey = 0x7a3d1f29
+  const i32 emberKey = 0x632be5ab
+
+  draw {
+    start = seed
+    // ---- timing: the seed's own frame count, or the one asked for ----------
+    stream_push(hash(start ^ timeKey))
+    rolled = pick(12, 15, 18)
+    rate = 18.0 to 21.0
+    stream_pop()
+    dur = float(rolled) / rate
+    n = rolled
+    if (frames >= 2) { n = min(frames, 64) }
+    f = frame
+    if (f == 0) { f = clamp(int(heroPhase * float(n)) + 1, 1, n) }
+    f = (f - 1) % n + 1
+    phase = (float(f) - 1.0) / float(n)
+
+    // ---- the look: roll everything, whatever the inputs --------------------
+    stream_push(hash(start ^ lookKey))
+    kind = 1 to 4 with looks
+    radius = 4.5 to 6.0
+    wob = {0.0 to 6.28318, 0.0 to 6.28318}
+    stream_pop()
+    cs = fire
+    if (kind == 2) { cs = blue }
+    if (kind == 3) { cs = witch }
+    if (kind == 4) { cs = shadow }
+    if (tint.a != 0) { cs = hotRamp(tint) }
+
+    // ---- this frame's light ------------------------------------------------
+    flick = loopNoise(phase * 2.0, 0.5, start ^ flickerKey)
+    lp = 2.8 + 0.8 * (flick - 0.5)
+    ls = 9.0
+    lb = 1.5
+    if (power > 0.0) { lp = power }
+    if (sigma > 0.0) { ls = sigma }
+    if (blur > 0.0) { lb = blur }
+    lp = clamp(lp, 0.0, 16.0)
+    ls = clamp(ls, 0.0, sigmaMax)
+    lb = clamp(lb, 0.0, 4.0)
+    anim = {float(n), float(n) / dur, 1.0, float(f)}
+    glow = {lp, ls, lb}
+
+    // ---- the passes (keep as is) -------------------------------------------
+    if (renderPass == 1) {
+      layer mask1(alpha = surface.source_over) { scene(start, phase, dur, cs, radius, wob, 1, 1.0) }
+      surface.paint(mask1, blend = surface.source_over)
+    } else if (renderPass == 2) {
+      if (lp > 0.0) {
+        k = max(1, int(ceil(lp)))
+        layer mask2(alpha = surface.source_over) { scene(start, phase, dur, cs, radius, wob, 1, lp / float(k)) }
+        pool = mask2.blur(ls)
+        bloom = mask2.blur(lb)
+        for i in 0..k { surface.paint(pool, blend = surface.source_over) }
+        for i in 0..k { surface.paint(bloom, blend = surface.source_over) }
+      }
+    } else {
+      layer sprite(alpha = surface.source_over) { scene(start, phase, dur, cs, radius, wob, 0, 1.0) }
+      surface.paint(sprite, blend = surface.source_over)
+    }
+  }
+
+  // Everything at this phase of the cycle, back to front. pass 0 paints
+  // colour; pass 1 paints only what emits light, alpha scaled by amp.
+  scene(start: i32, phase: f32, dur: f32, cs: list<color>, radius: f32, wob: vec2, pass: i32, amp: f32) {
+    // The head bobs a hair as it flies.
+    head = {ox + 0.5 * (loopNoise(phase, 3.0, start ^ flickerKey) - 0.5), oy + 1.2 * (loopNoise(phase, 4.0, start ^ flickerKey) - 0.5)}
+    if (pass == 1) {
+      // Light only: a halo round the head and light running down the tail.
+      haze(head, 16.0, cs[3], 0.55 * amp)
+      for i in 0..5 { haze(head - {8.0 + 9.0 * float(i), 0.0}, 9.0 - float(i), cs[4], (0.3 - 0.05 * float(i)) * amp) }
+    }
+    tail(start, phase, dur, cs, head, radius, pass, amp)
+    // The body: tongues of flame rooted in the head streaming back.
+    for i in 0..4 {
+      stream_push(hash((start ^ bladeKey) + i * 0x9e3779b1))
+      lane = 0.0 to 40.0
+      stream_pop()
+      len = 30.0
+      hw = 4.2
+      dy = 0.0
+      if (i == 1) {
+        len = 23.0
+        hw = 4.4
+        dy = -1.6
+      }
+      if (i == 2) {
+        len = 22.0
+        hw = 4.4
+        dy = 1.6
+      }
+      if (i == 3) {
+        len = 15.0
+        hw = 4.6
+      }
+      grow = 0.82 + 0.25 * loopNoise(phase * 2.0, lane, start ^ bladeKey) + 0.3 * max(0.0, loopNoise(phase, lane + 3.0, start ^ bladeKey) - 0.5)
+      curl = (loopNoise(phase * 2.0, lane + 5.0, start ^ bladeKey) - 0.5) * 6.0 + dy
+      blade(head + {1.0, dy * 0.5}, {-1.0, dy * 0.02}, len * grow, hw * radius / 5.0, curl, phase, lane, cs, 4, pass, amp)
+    }
+    // The corona: thin licks peeling back off the head.
+    for i in 0..6 {
+      a = -1.3 - 0.5 * float(i % 3)
+      if (i >= 3) { a = -a }
+      lane = 20.0 + float(i) * 3.7
+      len = 6.0
+      if (i % 3 == 1) { len = 8.0 }
+      if (i % 3 == 2) { len = 7.0 }
+      len = len * (0.7 + 0.4 * loopNoise(phase * 2.0, lane, start ^ bladeKey))
+      root = head + {cos(a), sin(a)} * (radius * 0.85)
+      dir = vec2.normalize({cos(a) * 0.55 - 1.0, sin(a) * 0.55})
+      sg = 1.0
+      if (a > 0.0) { sg = -1.0 }
+      blade(root, dir, len, 1.15, sg * 1.5, phase, lane, cs, 2, pass, amp)
+    }
+    ball(phase, cs, head, radius, wob, pass, amp)
+    motes(start, phase, dur, cs, head, radius, pass, amp)
+    embers(start, phase, dur, cs, head, pass, amp)
+  }
+
+  // The head: a ball whose outline churns, swept back behind, its heat in
+  // bands that swirl, white at the heart, and a crisp hot rim at the front.
+  ball(phase: f32, cs: list<color>, head: vec2, radius: f32, wob: vec2, pass: i32, amp: f32) {
+    k = 1.0
+    if (pass == 1) { k = amp }
+    for band in 0..6 {
+      // Bands from the cool skin in to the white heart.
+      inner = 0.0
+      col = cs[6]
+      if (band == 1) {
+        inner = 0.13
+        col = cs[5]
+      }
+      if (band == 2) {
+        inner = 0.27
+        col = cs[4]
+      }
+      if (band == 3) {
+        inner = 0.42
+        col = cs[2]
+      }
+      if (band == 4) {
+        inner = 0.58
+        col = cs[1]
+      }
+      if (band == 5) {
+        inner = 0.74
+        col = cs[0]
+      }
+      for s in 0..20 {
+        q0 = tau * float(s) / 20.0
+        q1 = tau * float(s + 1) / 20.0
+        p0 = head + {cos(q0), sin(q0)} * (rimR(q0, phase, radius, wob) * bandR(q0, phase, inner, wob))
+        p1 = head + {cos(q1), sin(q1)} * (rimR(q1, phase, radius, wob) * bandR(q1, phase, inner, wob))
+        poly(ink(col, k), head.x, head.y, p0.x, p0.y, p1.x, p1.y)
+      }
+    }
+    // The leading edge, crisp and hot where it cuts the air.
+    for s in 0..8 {
+      q0 = -1.2 + 2.4 * float(s) / 8.0
+      q1 = -1.2 + 2.4 * float(s + 1) / 8.0
+      line(head + {cos(q0), sin(q0)} * (rimR(q0, phase, radius, wob) - 0.5), head + {cos(q1), sin(q1)} * (rimR(q1, phase, radius, wob) - 0.5), 1, ink(cs[3], k))
+    }
+  }
+
+  // The head's outline at angle q: swept back behind, churning.
+  rimR(q: f32, phase: f32, radius: f32, wob: vec2) -> f32 {
+    back = max(0.0, -cos(q))
+    bump = 0.55 * sin(5.0 * q + tau * phase * 2.0 + wob.x) + 0.35 * sin(9.0 * q - tau * phase * 3.0 + wob.y)
+    return radius * (1.0 + 0.55 * back * back) + bump
+  }
+  // Where a band of heat starts (1 at the skin, 0 at the heart): the bands
+  // swirl round as the ball churns, and run hotter towards the nose.
+  bandR(q: f32, phase: f32, inner: f32, wob: vec2) -> f32 {
+    if (inner <= 0.0) { return 1.0 }
+    swirl = 0.5 + 0.5 * sin(4.0 * q - tau * phase * 2.0 + wob.y)
+    return clamp(1.0 - inner + 0.2 * swirl + 0.1 * max(0.0, cos(q)), 0.05, 1.0)
+  }
+
+  // A tongue of flame from root along dir: rooted wide, tapering to a tip
+  // that lashes, curling by curl px at the tip. layers = how many coats,
+  // from the dark outside in to the hot core.
+  blade(root: vec2, dir: vec2, len: f32, hw: f32, curl: f32, phase: f32, lane: f32, cs: list<color>, layers: i32, pass: i32, amp: f32) {
+    if (len >= 2.0) {
+      nr = {-dir.y, dir.x}
+      for coat in 0..layers {
+        lk = 1.0 - float(coat) * 0.24
+        wk = 1.0 - float(coat) * 0.24
+        col = cs[6 - coat]
+        if (layers == 2) { col = cs[5 - coat * 2] }
+        if (coat == 3) { col = cs[1] }
+        a = 1.0
+        if (pass == 1) {
+          a = 0.0
+          if (coat >= layers - 2) { a = 0.8 * amp }
+        }
+        if (a > 0.0) {
+          l = len * lk
+          w = hw * wk
+          p1 = spine(root, dir, nr, l, curl, phase, lane, 0.3)
+          p2 = spine(root, dir, nr, l, curl, phase, lane, 0.62)
+          tip = spine(root, dir, nr, l, curl, phase, lane, 1.0)
+          w1 = w * 0.78
+          w2 = w * 0.45
+          poly(ink(col, a), root.x + nr.x * w, root.y + nr.y * w, p1.x + nr.x * w1, p1.y + nr.y * w1, p2.x + nr.x * w2, p2.y + nr.y * w2, tip.x, tip.y,
+               p2.x - nr.x * w2, p2.y - nr.y * w2, p1.x - nr.x * w1, p1.y - nr.y * w1, root.x - nr.x * w, root.y - nr.y * w)
+        }
+      }
+    }
+  }
+  // A point u of the way along a tongue: it curls and a wave runs down it.
+  spine(root: vec2, dir: vec2, nr: vec2, len: f32, curl: f32, phase: f32, lane: f32, u: f32) -> vec2 {
+    wave = 1.6 * u * sin(tau * (phase * 2.0 - u * 1.2) + lane)
+    return root + dir * (len * u) + nr * (curl * u * u + wave)
+  }
+
+  // The tail: flame puffs thrown off the back that the head leaves behind.
+  // They cool and swell as they fall back and rise, thinning as they cool,
+  // painted in coats across all the puffs (rims, bodies, hearts) so they merge
+  // into one torn mass rather than a string of beads. Behind them, smoke
+  // rolls off the end of the tail.
+  tail(start: i32, phase: f32, dur: f32, cs: list<color>, head: vec2, radius: f32, pass: i32, amp: f32) {
+    if (pass == 0) {
+      for i in 0..14 {
+        stream_push(hash((start ^ puffKey) + (i + 100) * 0x9e3779b1))
+        at = 0.0 to 1.0
+        births = pick(1, 2)
+        x0 = -30.0 to -16.0
+        y0 = -2.5 to 2.5
+        size = 0.8 to 1.3
+        stream_pop()
+        period = dur / float(births)
+        age = fract(phase * float(births) + at) * period
+        u = age / period
+        p = head + {x0 - speed * 0.5 * age, y0 - 8.0 * age - 14.0 * age * age}
+        r = (1.8 + 3.2 * u) * size
+        oval(p, r, r * 0.85, ink(smokeTones[i % 3], 0.34 * sin(3.14159 * u)))
+        oval(p - {r * 0.3, r * 0.3}, r * 0.5, r * 0.45, ink(smokeTones[2], 0.25 * sin(3.14159 * u)))
+      }
+    }
+    for coat in 1..4 {
+      if (pass == 0 || coat >= 2) {
+        for i in 0..26 {
+          stream_push(hash((start ^ puffKey) + i * 0x9e3779b1))
+          at = 0.0 to 1.0
+          births = pick(2, 3, 4)
+          fl = 0.22 to 0.55
+          x0 = -22.0 to -4.0
+          spread = -1.0 to 1.0
+          v = 0.3 to 0.6
+          vy = -16.0 to 16.0
+          size = 1.1 to 2.2
+          hot = 0.0 to 0.5
+          stream_pop()
+          period = dur / float(births)
+          age = fract(phase * float(births) + at) * period
+          fl = min(fl, period * 0.95)
+          if (age < fl) {
+            u = age / fl
+            y0 = spread * (radius + 0.1 * x0)
+            // Flung back at v of the flight speed; the heat lifts it.
+            p = head + {x0 - speed * (1.0 - v) * age, y0 + vy * age - 35.0 * age * age}
+            heat = hot + 0.5 * (-x0 / 22.0)
+            r = size * (0.9 + 1.1 * u)
+            h = (1.0 - u) * (0.6 + 0.4 * heat)
+            puff(p, r, h, cs, coat, pass, amp)
+          }
+        }
+      }
+    }
+  }
+
+  // One flame puff in coat c: 1 the cooler rim, 2 the body, 3 the hot heart
+  // (offset towards the upper left, where the light comes from). It thins
+  // as it cools.
+  puff(p: vec2, r: f32, h: f32, cs: list<color>, coat: i32, pass: i32, amp: f32) {
+    idx = 7
+    if (h > 0.15) { idx = 6 }
+    if (h > 0.3) { idx = 5 }
+    if (h > 0.45) { idx = 4 }
+    if (h > 0.6) { idx = 3 }
+    if (h > 0.8) { idx = 2 }
+    a = smoothstep(0.0, 0.3, h)
+    if (pass == 0) {
+      if (coat == 1) { oval(p, r + 0.6, r + 0.4, ink(cs[min(7, idx + 1)], a)) }
+      if (coat == 2) { oval(p, r, r * 0.9, ink(cs[idx], a)) }
+      if (coat == 3 && h > 0.3) { oval(p - {r * 0.25, r * 0.25}, r * 0.5, r * 0.45, cs[max(0, idx - 2)]) }
+    } else {
+      if (coat == 2) { oval(p, r, r * 0.9, ink(cs[idx], h * 0.7 * amp)) }
+      if (coat == 3 && h > 0.3) { oval(p - {r * 0.25, r * 0.25}, r * 0.5, r * 0.45, ink(cs[max(0, idx - 2)], h * amp)) }
+    }
+  }
+
+  // Motes flicked off the head's skin: short hot streaks that die at once.
+  motes(start: i32, phase: f32, dur: f32, cs: list<color>, head: vec2, radius: f32, pass: i32, amp: f32) {
+    for i in 0..8 {
+      stream_push(hash((start ^ moteKey) + i * 0x9e3779b1))
+      at = 0.0 to 1.0
+      births = pick(2, 3)
+      a = -2.4 to 2.4
+      v = 30.0 to 70.0
+      life = 0.08 to 0.18
+      stream_pop()
+      period = dur / float(births)
+      age = fract(phase * float(births) + at) * period
+      if (age < life) {
+        d = radius * 0.9 + v * age
+        p = head + {cos(a) * d - speed * 0.4 * age, sin(a) * d}
+        k = 1.0 - age / life
+        l = 1.0 + 2.0 * k
+        col = cs[3]
+        if (k > 0.5) { col = cs[1] }
+        kk = 1.0
+        if (pass == 1) { kk = k * amp }
+        line(p - {cos(a) * l - speed * 0.02, sin(a) * l}, p, 1, ink(col, kk))
+      }
+    }
+  }
+
+  // Embers left behind: sparks the head outruns, falling as they cool; a
+  // few are fat glowing flecks.
+  embers(start: i32, phase: f32, dur: f32, cs: list<color>, head: vec2, pass: i32, amp: f32) {
+    for i in 0..10 {
+      stream_push(hash((start ^ emberKey) + i * 0x9e3779b1))
+      at = 0.0 to 1.0
+      births = pick(2, 3)
+      x0 = -16.0 to -2.0
+      y0 = -3.0 to 3.0
+      v = 0.3 to 0.8
+      vy = -20.0 to 20.0
+      life = 0.25 to 0.55
+      big = chance(0.25)
+      stream_pop()
+      period = dur / float(births)
+      age = fract(phase * float(births) + at) * period
+      life = min(life, period * 0.95)
+      if (age < life) {
+        k = 1.0 - age / life
+        p = head + {x0 - speed * (1.0 - v) * age, y0 + vy * age + 25.0 * age * age}
+        col = cs[4]
+        if (k > 0.66) { col = cs[2] }
+        if (k < 0.33) { col = cs[6] }
+        kk = 1.0
+        if (pass == 1) { kk = k * amp }
+        if (big == 1) { rect(floor(p.x), floor(p.y), 2.0, 2.0, ink(col, kk)) }
+        else { line(p, p + {speed * (1.0 - v) * 0.025, -vy * 0.025}, 1, ink(col, kk)) }
+      }
+    }
+  }
+
+  // ---- toolkit ---------------------------------------------------------------
+  // A soft round glow for the light mask: nested discs that add up to alpha a
+  // in the middle and fade out to radius r, so even the bloom stays soft.
+  haze(p: vec2, r: f32, col: color, a: f32) {
+    for i in 0..4 {
+      k = 1.0 - float(i) * 0.24
+      oval(p, r * k, r * k, ink(col, a * (0.12 + 0.08 * float(i))))
+    }
+  }
+  // The colour with its alpha scaled by a (clamped to 0..1).
+  ink(c: color, a: f32) -> color {
+    return color.set.a(c, int(clamp(a, 0.0, 1.0) * float(c.a)))
+  }
+  // The fractional part: fract(phase * n + offset) repeats n times a loop.
+  fract(x: f32) -> f32 {
+    return x - floor(x)
+  }
+  // Smooth noise that loops with the phase: the noise field sampled round a
+  // circle, so phase 0 and 1 meet. lane separates independent signals.
+  loopNoise(phase: f32, lane: f32, key: i32) -> f32 {
+    q = 6.28318 * phase
+    return noise(cos(q) * 1.6 + lane * 5.3, sin(q) * 1.6 + lane * 2.9, key)
+  }
+  // Nine steps of fire from a colour, hottest first: white, pale, the colour,
+  // down to a dark ember.
+  hotRamp(c: color) -> list<color> {
+    base = color.set.a(c, 255)
+    return [#ffffff, color.mix(base, #fffbe8, 0.75), color.mix(base, #fff4d0, 0.5), color.mix(base, #fff0c0, 0.25), base,
+            color.mix(#140808, base, 0.8), color.mix(#140808, base, 0.62), color.mix(#140808, base, 0.42), color.mix(#140808, base, 0.24)]
+  }
+}

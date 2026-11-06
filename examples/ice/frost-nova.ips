@@ -1,0 +1,677 @@
+// Frost nova: the cold gathers (streaks of frost spiral in while a snowflake
+// spins up over the caster's hands), then it bursts: a flash, a spray of ice
+// shards and flakes, and a ring of frost races out along the floor. As it
+// passes, three rings of faceted ice crystals punch up (tall ones near the
+// caster, small ones far out, in a back row and a front row), each with a
+// spray of shards and a puff of vapour; frost crusts the floor. Glints run
+// over the ice and snow drifts down while it holds; then the crystals sink
+// back into the floor, dripping, and the frost fades.
+//
+// Category: ice. One-shot. Canvas 192x96, origin 96,84 (the floor under the
+// caster, who stands on the origin). Side view at the scale of a 24x38
+// character, light from the upper left: the crystals' left faces are lit.
+// Frames: the seed rolls 24, 30 or 36 frames over 2.0-2.4 s; `frames`
+// retimes it. The effect is choreographed over 2.4 s and played to fit.
+// Light: the mask holds the snowflake, the burst, the racing ring, the
+// crystals' lit faces and ridges, the shards, the flakes and the frost on the
+// floor; power gathers to 2, flashes to about 7 with the burst and fades as
+// the ice melts, sigma 10, blur 1.5.
+//   tint   transparent rolls the colour (60% ice, 25% glacial teal, 15%
+//          arctic violet); a colour recolours the ice
+//
+// Variety: medium
+asset FrostNova {
+  size 192x96
+  origin 96,84
+
+  // ---- the effect contract -------------------------------------------------
+  // 0 draws the hero frame; 1..frames play the effect; past its end a
+  // one-shot draws nothing.
+  input u32 frame = 0
+  // 0 rolls the frame count from the seed; 2..64 retimes the effect.
+  input u32 frames = 0
+  // 0 colour sprite, 1 light mask, 2 light under the pixels (the mask with
+  // power, sigma and blur applied, ready to add under the sprite).
+  input u32 renderPass = 0
+  // 0 keeps this frame's own value; above 0 forces it.
+  input f32 power = 0.0
+  input f32 sigma = 0.0
+  input f32 blur = 0.0
+  // Transparent rolls the colour from the seed; a colour recolours it.
+  input color tint = #00000000
+
+  // {frames, fps, loop (1) or one-shot (0), the frame drawn (0 when done)}
+  output rect anim
+  // {x: power, y: sigma, radius: blur} of this frame's light
+  output circle glow
+
+  palette ice = [#151a3d, #212f6b, #2c58aa, #3a8bd8, #62c8f4, #a6ecff, #dcfbff, #ffffff]
+  palette glacial = [#0a1f2a, #12384a, #1a6070, #2c9aa8, #5cd0d0, #a8f2ec, #e0fffa, #ffffff]
+  palette violet = [#1a1238, #2e2066, #4a3aa0, #6c62d0, #9a98f0, #c8ccff, #eceeff, #ffffff]
+
+  const distribution looks = weighted {1: 60, 2: 25, 3: 15}
+  const f32 heroPhase = 0.45
+  const f32 sigmaMax = 12.0
+  const f32 cx = 96.0
+  const f32 floorY = 84.0
+  const f32 tau = 6.28318
+  // The choreography, in seconds of the natural timeline.
+  const f32 natural = 2.4
+  const f32 charge = 0.4
+  const f32 spread = 0.5
+  const f32 hold = 1.55
+  const f32 melt = 0.55
+  // The snowflake gathers this far above the floor.
+  const f32 coreY = -20.0
+  const f32 grav = 420.0
+
+  // Stream keys, one per purpose; per-particle streams add i * 0x9e3779b1.
+  const i32 timeKey = 0x68e31da4
+  const i32 lookKey = 0x2f6b9a13
+  const i32 siteKey = 0x1b873593
+  const i32 shardKey = 0x2545f491
+  const i32 flakeKey = 0x3c6ef372
+  const i32 streakKey = 0x7a3d1f29
+  const i32 puffKey = 0x632be5ab
+  const i32 frostKey = 0x4f1bbcdc
+  const i32 dripKey = 0x5bd1e995
+
+  draw {
+    start = seed
+    // ---- timing: the seed's own frame count, or the one asked for ----------
+    stream_push(hash(start ^ timeKey))
+    rolled = pick(24, 30, 36)
+    dur = 2.0 to 2.4
+    stream_pop()
+    n = rolled
+    if (frames >= 2) { n = min(frames, 64) }
+    f = frame
+    if (f == 0) { f = clamp(int(heroPhase * float(n)) + 1, 1, n) }
+    t = (float(f) - 0.5) / float(n) * natural
+
+    // ---- the look: roll everything, whatever the inputs --------------------
+    stream_push(hash(start ^ lookKey))
+    kind = 1 to 3 with looks
+    reach = 52.0 to 64.0
+    spin = 3.0 to 5.0
+    if (chance(0.5)) { spin = -spin }
+    tall = 0.85 to 1.15 with gaussian(mean = 1.0, sigma = 0.08)
+    stream_pop()
+    cs = ice
+    if (kind == 2) { cs = glacial }
+    if (kind == 3) { cs = violet }
+    if (tint.a != 0) { cs = rampFrom(tint) }
+
+    // ---- this frame's light ------------------------------------------------
+    lp = 1.0 + 1.0 * smoothstep(0.0, charge, t)
+    if (t > charge) { lp = lp + 4.0 * exp(-(t - charge) / 0.12) + 1.2 * exp(-(t - charge) / 0.45) }
+    lp = lp * (1.0 - smoothstep(hold, natural - 0.1, t))
+    ls = 10.0
+    lb = 1.5
+    if (power > 0.0) { lp = power }
+    if (sigma > 0.0) { ls = sigma }
+    if (blur > 0.0) { lb = blur }
+    lp = clamp(lp, 0.0, 16.0)
+    ls = clamp(ls, 0.0, sigmaMax)
+    lb = clamp(lb, 0.0, 4.0)
+    shown = f
+    if (f > n) {
+      shown = 0
+      lp = 0.0
+    }
+    anim = {float(n), float(n) / dur, 0.0, float(shown)}
+    glow = {lp, ls, lb}
+
+    // ---- the passes (keep as is) -------------------------------------------
+    if (f <= n) {
+      if (renderPass == 1) {
+        layer mask1(alpha = surface.source_over) { scene(start, t, cs, reach, spin, tall, 1, 1.0) }
+        surface.paint(mask1, blend = surface.source_over)
+      } else if (renderPass == 2) {
+        if (lp > 0.0) {
+          k = max(1, int(ceil(lp)))
+          layer mask2(alpha = surface.source_over) { scene(start, t, cs, reach, spin, tall, 1, lp / float(k)) }
+          pool = mask2.blur(ls)
+          bloom = mask2.blur(lb)
+          for i in 0..k { surface.paint(pool, blend = surface.source_over) }
+          for i in 0..k { surface.paint(bloom, blend = surface.source_over) }
+        }
+      } else {
+        layer sprite(alpha = surface.source_over) { scene(start, t, cs, reach, spin, tall, 0, 1.0) }
+        surface.paint(sprite, blend = surface.source_over)
+      }
+    }
+  }
+
+  // Everything at time t, back to front. pass 0 paints colour; pass 1 paints
+  // only what emits light, alpha scaled by amp.
+  scene(start: i32, t: f32, cs: list<color>, reach: f32, spin: f32, tall: f32, pass: i32, amp: f32) {
+    core = {cx, floorY + coreY}
+    front = frontAt(t, reach)
+    // The back rows a step darker.
+    dim = [cs[0], cs[0], cs[1], cs[2], cs[3], cs[4], cs[5], cs[6]]
+    frostFloor(t, cs, reach, front, pass, amp)
+    band(t, cs, front, 0, pass, amp)
+    crystals(start, t, dim, reach, tall, 1, pass, amp)
+    puffs(start, t, cs, reach, pass, amp)
+    crystals(start, t, cs, reach, tall, 0, pass, amp)
+    band(t, cs, front, 1, pass, amp)
+    if (t < charge + 0.1) { gather(start, t, cs, core, spin, pass, amp) }
+    if (t > charge) {
+      rel = t - charge
+      if (pass == 1) {
+        haze(core, 24.0, cs[4], 0.5 * exp(-rel / 0.3) * amp)
+        haze(core, 10.0, cs[7], 0.5 * exp(-rel / 0.1) * amp)
+      }
+      burst(start, t, cs, core, pass, amp)
+      sprays(start, t, cs, reach, tall, pass, amp)
+    }
+    snow(start, t, cs, reach, pass, amp)
+    drips(start, t, cs, reach, tall, pass, amp)
+  }
+
+  // ---- the timeline ----------------------------------------------------------
+  // How far the frost has run along the floor at time t: it races out and
+  // slows (ease-out cubic).
+  frontAt(t: f32, reach: f32) -> f32 {
+    if (t < charge) { return 0.0 }
+    u = clamp((t - charge) / spread, 0.0, 1.0)
+    return reach * (1.0 - (1.0 - u) * (1.0 - u) * (1.0 - u))
+  }
+  // When the frost reaches distance d.
+  reachedAt(d: f32, reach: f32) -> f32 {
+    return charge + spread * (1.0 - pow(max(0.0, 1.0 - min(1.0, d / reach)), 0.33333))
+  }
+  // How far the ice has sunk back into the floor: 0 while it holds, 1 gone.
+  sink(t: f32) -> f32 {
+    return smoothstep(hold, hold + melt, t)
+  }
+
+  // ---- the charge ------------------------------------------------------------
+  // Streaks of frost spiralling in to the core while a six-armed snowflake
+  // spins up there, growing and brightening.
+  gather(start: i32, t: f32, cs: list<color>, core: vec2, spin: f32, pass: i32, amp: f32) {
+    for i in 0..12 {
+      stream_push(hash((start ^ streakKey) + i * 0x9e3779b1))
+      born = 0.0 to 0.2
+      a = 0.0 to 6.28318
+      d = 26.0 to 50.0
+      life = 0.2 to 0.3
+      pale = chance(0.5)
+      stream_pop()
+      age = t - born
+      if (age >= 0.0 && age < life) {
+        s = {cx + cos(a) * d, min(core.y + sin(a) * d * 0.8, floorY - 2.0)}
+        u = age / life
+        e = (1.0 - exp(-3.0 * u)) / 0.9502
+        eb = (1.0 - exp(-3.0 * max(0.0, u - 0.18))) / 0.9502
+        col = cs[5]
+        if (pale == 1) { col = cs[6] }
+        k = 1.0
+        if (pass == 1) { k = 0.6 * amp }
+        line(s + (core - s) * eb, s + (core - s) * e, 1, ink(col, k))
+      }
+    }
+    if (t < charge) {
+      grow = smoothstep(0.05, charge, t)
+      flake(core, 7.0 * grow, spin * t, cs, pass, amp)
+      if (pass == 1) { haze(core, 6.0 + 9.0 * grow, cs[5], (0.35 + 0.5 * grow) * amp) }
+    }
+  }
+
+  // A snowflake: six arms, white at the heart, each with two side branches.
+  flake(c: vec2, len: f32, turn: f32, cs: list<color>, pass: i32, amp: f32) {
+    if (len >= 0.8) {
+      k = 1.0
+      if (pass == 1) { k = amp }
+      for i in 0..6 {
+        a = turn + tau * float(i) / 6.0
+        dir = {cos(a), sin(a)}
+        line(c, c + dir * (len * 0.4), 1, ink(cs[7], k))
+        line(c + dir * (len * 0.4), c + dir * len, 1, ink(cs[6], k))
+        if (len > 3.0) {
+          b = c + dir * (len * 0.6)
+          line(b, b + {cos(a + 0.9), sin(a + 0.9)} * (len * 0.35), 1, ink(cs[5], k))
+          line(b, b + {cos(a - 0.9), sin(a - 0.9)} * (len * 0.35), 1, ink(cs[5], k))
+        }
+      }
+      rect(floor(c.x), floor(c.y), 1.0, 1.0, ink(cs[7], k))
+    }
+  }
+
+  // ---- the burst -------------------------------------------------------------
+  // Ice shards and flakes thrown up out of the core as it bursts.
+  burst(start: i32, t: f32, cs: list<color>, core: vec2, pass: i32, amp: f32) {
+    rel = t - charge
+    for i in 0..16 {
+      stream_push(hash((start ^ shardKey) + i * 0x9e3779b1))
+      a = -3.14159 to 0.25
+      v = 80.0 to 200.0
+      life = 0.9 to 1.5
+      turn0 = 0.0 to 6.28318
+      twist = -20.0 to 20.0
+      size = 1.2 to 2.6
+      shade = 0 to 2
+      dx = -3.0 to 3.0
+      stream_pop()
+      if (rel < life) {
+        p = fly(core + {dx, 0.0}, {cos(a) * v, sin(a) * v}, rel, 0.6, grav * 0.7)
+        shard(p, turn0 + twist * rel, size, cs[7 - shade], 1.0 - smoothstep(0.7, 1.0, rel / life), pass, amp)
+      }
+    }
+    for i in 0..10 {
+      stream_push(hash((start ^ flakeKey) + i * 0x9e3779b1))
+      a = -3.14159 to 0.0
+      v = 30.0 to 110.0
+      life = 1.2 to 1.8
+      white = chance(0.6)
+      size = 0.5 to 1.6
+      sway = 0.0 to 6.28318
+      stream_pop()
+      if (rel < life) {
+        p = drift(core, {cos(a) * v, sin(a) * v}, rel, sway)
+        col = cs[6]
+        if (white == 1) { col = cs[7] }
+        speck(p, size * (1.0 - rel / life * 0.5), col, 1.0 - smoothstep(0.75, 1.0, rel / life), pass, amp)
+      }
+    }
+  }
+
+  // A shard of ice tumbling: a sliver turned by a, or a single pixel when
+  // it is small.
+  shard(p: vec2, a: f32, size: f32, col: color, fade: f32, pass: i32, amp: f32) {
+    k = fade
+    if (pass == 1) { k = fade * 0.8 * amp }
+    if (size < 1.5) { rect(floor(p.x), floor(p.y), 1.0, 1.0, ink(col, k)) }
+    else {
+      q0 = p + {cos(a), sin(a)} * size
+      q1 = p + {cos(a + 2.5), sin(a + 2.5)} * (size * 0.5)
+      q2 = p + {cos(a - 2.5), sin(a - 2.5)} * (size * 0.5)
+      poly(ink(col, k), q0.x, q0.y, q1.x, q1.y, q2.x, q2.y)
+      line(q1, q0, 1, ink(col, k))
+    }
+  }
+
+  // A flake or a star: a pixel, or a little cross when it is big.
+  speck(p: vec2, size: f32, col: color, fade: f32, pass: i32, amp: f32) {
+    k = fade
+    if (pass == 1) { k = fade * 0.7 * amp }
+    x = floor(p.x)
+    y = floor(p.y)
+    if (size > 1.2) {
+      rect(x - 1.0, y, 3.0, 1.0, ink(col, k * 0.6))
+      rect(x, y - 1.0, 1.0, 3.0, ink(col, k * 0.6))
+    }
+    rect(x, y, 1.0, 1.0, ink(col, k))
+  }
+
+  // ---- the ring and the crystals --------------------------------------------
+  // The ring of frost racing out along the floor: a bright edge with paler
+  // bands inside it, thinning as it goes; near = 1 draws its near half, 0
+  // its far half (behind the crystals). A glow rides each end of it.
+  band(t: f32, cs: list<color>, front: f32, near: i32, pass: i32, amp: f32) {
+    if (t >= charge) {
+      u = clamp((t - charge) / (spread + 0.15), 0.0, 1.0)
+      if (u < 1.0) {
+        r = front + 2.0
+        thick = max(2.0, 9.0 * pow(1.0 - u, 0.7))
+        a = 1.0
+        if (u > 0.75) { a = (1.0 - u) / 0.25 }
+        edge = cs[6]
+        if (t - charge < 0.1) { edge = cs[7] }
+        k = a
+        if (pass == 1) { k = a * 0.8 * amp }
+        a0 = 3.14159
+        if (near == 1) { a0 = 0.0 }
+        for s in 0..24 {
+          g0 = a0 + 3.14159 * float(s) / 24.0
+          g1 = a0 + 3.14159 * float(s + 1) / 24.0
+          for b in 0..3 {
+            rr = r - thick * float(b) * 0.5
+            col = edge
+            bk = k
+            if (b == 1) {
+              col = cs[5]
+              bk = k * 0.7
+            }
+            if (b == 2) {
+              col = cs[4]
+              bk = k * 0.4
+            }
+            if (rr > 1.0) { line({cx + cos(g0) * rr, floorY - 1.0 + sin(g0) * rr * 0.16}, {cx + cos(g1) * rr, floorY - 1.0 + sin(g1) * rr * 0.16}, 1, ink(col, bk)) }
+          }
+        }
+        if (pass == 1 && near == 1) {
+          haze({cx - r, floorY - 2.0}, 14.0, cs[5], 0.55 * (1.0 - u) * amp)
+          haze({cx + r, floorY - 2.0}, 14.0, cs[5], 0.55 * (1.0 - u) * amp)
+        }
+      }
+    }
+  }
+
+  // The crystals, on both sides in three rings: two tall ones with two
+  // smaller ones leaning off them hugging the caster, three middling ones
+  // with one, four small ones far out. Each punches up (overshooting) when the
+  // frost reaches it, white for a moment; glints run up its ridge while it
+  // holds; it sinks as the ice melts. back picks the row: the back row (1)
+  // stands a pixel higher and a step darker.
+  crystals(start: i32, t: f32, cs: list<color>, reach: f32, tall: f32, back: i32, pass: i32, amp: f32) {
+    m = sink(t)
+    if (m < 1.0 && t > charge) {
+      for side in 0..2 {
+        sg = -1.0
+        if (side == 1) { sg = 1.0 }
+        for ring in 0..3 {
+          count = 2 + ring
+          for i in 0..count {
+            stream_push(hash((start ^ siteKey) + (side * 16 + ring * 5 + i) * 0x9e3779b1))
+            jit = 0.2 to 0.8
+            hr = 0.0 to 1.0
+            wr = 0.0 to 1.0
+            leanR = 0.1 to 0.28
+            late = 0.0 to 0.03
+            ph = 0.0 to 1.0
+            k1 = 0.3 to 0.5
+            k1h = 0.4 to 0.62
+            k1l = 0.35 to 0.6
+            k2 = 0.3 to 0.5
+            k2h = 0.4 to 0.62
+            k2l = 0.35 to 0.6
+            stream_pop()
+            if ((i + ring + side) % 2 == back) {
+              q0 = 0.15
+              q1 = 0.24
+              h = 17.0 + 5.0 * hr
+              w = 7.0 + 2.0 * wr
+              kids = 2
+              if (ring == 1) {
+                q0 = 0.36
+                q1 = 0.52
+                h = 9.0 + 4.0 * hr
+                w = 5.0 + 1.5 * wr
+                kids = 1
+              }
+              if (ring == 2) {
+                q0 = 0.62
+                q1 = 0.9
+                h = 4.0 + 3.0 * hr
+                w = 3.0 + 1.2 * wr
+                kids = 0
+              }
+              h = h * tall
+              q = q0 + (q1 - q0) * (float(i) + jit) / float(count)
+              x = cx + sg * q * reach
+              t0 = reachedAt(q * reach, reach) + late
+              if (t >= t0) {
+                g = easeOutBack(clamp((t - t0) / 0.1, 0.0, 1.0), 2.6)
+                fresh = 0
+                if (t < t0 + 0.03) { fresh = 1 }
+                sw = (t - t0) * 0.7 + ph * 3.0
+                sw = (sw - 1.6 * floor(sw / 1.6)) / 0.5
+                glint = -1.0
+                if (sw <= 1.0) { glint = sw }
+                y = floorY - float(back)
+                if (kids >= 1) {
+                  kh = h * k1h
+                  crystal(x + sg * k1 * w, y, kh * g * (1.0 - m), w * 0.62 * (1.0 - m * 0.3), sg * kh * k1l * g * (1.0 - m), cs, fresh, -1.0, pass, amp)
+                }
+                if (kids >= 2) {
+                  kh = h * k2h
+                  crystal(x - sg * k2 * w, y, kh * g * (1.0 - m), w * 0.62 * (1.0 - m * 0.3), -sg * kh * k2l * g * (1.0 - m), cs, fresh, -1.0, pass, amp)
+                }
+                crystal(x, y, h * g * (1.0 - m), w * (1.0 - m * 0.3), sg * h * leanR * g * (1.0 - m), cs, fresh, glint, pass, amp)
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // One faceted spike of ice standing at x on y: a lit left face and a
+  // shaded right face meeting at a bright ridge, a dark right edge, a pale
+  // left edge, a white tip. fresh = 1 draws it all white; glint (0..1, or
+  // below 0 for none) puts a glint that far up the ridge.
+  crystal(x: f32, y: f32, h: f32, w: f32, lean: f32, cs: list<color>, fresh: i32, glint: f32, pass: i32, amp: f32) {
+    if (h >= 1.5 && w >= 1.0) {
+      tip = {x + lean, y - h}
+      bl = {x - w * 0.5, y}
+      br = {x + w * 0.5, y}
+      rb = {x - w * 0.08, y}
+      if (pass == 0) {
+        if (fresh == 1) { poly(cs[7], bl.x, bl.y, tip.x, tip.y, br.x, br.y) }
+        else {
+          poly(cs[3], rb.x, rb.y, tip.x, tip.y, br.x, br.y)
+          poly(cs[5], bl.x, bl.y, tip.x, tip.y, rb.x, rb.y)
+          line(br, tip, 1, cs[2])
+          line(bl, tip, 1, cs[6])
+          line(rb, tip, 1, cs[6])
+          rect(floor(tip.x), floor(tip.y), 1.0, 1.0, cs[7])
+        }
+      } else {
+        if (fresh == 1) { poly(ink(cs[7], amp), bl.x, bl.y, tip.x, tip.y, br.x, br.y) }
+        else {
+          poly(ink(cs[5], 0.22 * amp), bl.x, bl.y, tip.x, tip.y, rb.x, rb.y)
+          line(rb, tip, 1, ink(cs[6], 0.5 * amp))
+        }
+      }
+      if (glint >= 0.0 && fresh == 0) {
+        g = rb + (tip - rb) * glint
+        k = 1.0
+        if (pass == 1) { k = amp }
+        rect(floor(g.x), floor(g.y) - 1.0, 1.0, 2.0, ink(cs[7], k))
+        if (h > 9.0) {
+          rect(floor(g.x) - 1.0, floor(g.y), 3.0, 1.0, ink(cs[7], 0.6 * k))
+        }
+      }
+    }
+  }
+
+  // Each crystal throws a couple of shards up as it punches through the
+  // floor.
+  sprays(start: i32, t: f32, cs: list<color>, reach: f32, tall: f32, pass: i32, amp: f32) {
+    for i in 0..24 {
+      stream_push(hash((start ^ shardKey) + (i + 40) * 0x9e3779b1))
+      q = 0.15 to 0.9
+      left = chance(0.5)
+      a = -2.87 to -0.27
+      v = 50.0 to 150.0
+      life = 0.8 to 1.4
+      turn0 = 0.0 to 6.28318
+      twist = -18.0 to 18.0
+      size = 1.2 to 2.4
+      shade = 0 to 2
+      stream_pop()
+      sg = 1.0
+      if (left == 1) { sg = -1.0 }
+      t0 = reachedAt(q * reach, reach)
+      age = t - t0
+      if (age > 0.0 && age < life) {
+        near = 1.0 - q * 0.6
+        p = fly({cx + sg * q * reach, floorY - 1.0}, {cos(a) * v * near, sin(a) * v * near}, age, 0.6, grav * 0.8)
+        shard(p, turn0 + twist * age, size, cs[7 - shade], 1.0 - smoothstep(0.7, 1.0, age / life), pass, amp)
+      }
+    }
+  }
+
+  // ---- the floor ---------------------------------------------------------------
+  // Frost on the floor out to the front: a white crust with little tufts
+  // standing on it and a bloom of frost down the floor's face, fresh and
+  // brightest at the running edge. It shrinks back to the middle as it melts.
+  frostFloor(t: f32, cs: list<color>, reach: f32, front: f32, pass: i32, amp: f32) {
+    out = 1.0 - smoothstep(hold + 0.1, natural - 0.05, t)
+    if (out > 0.0 && t > charge) {
+      edge = max(8.0, front + 1.0)
+      cols = int(edge * 2.0) + 1
+      for i in 0..cols {
+        x = floor(cx - edge) + float(i)
+        d = abs(x + 0.5 - cx)
+        q = d / reach
+        k = clamp((out * 1.15 - q) / 0.15, 0.0, 1.0)
+        if (k > 0.0 && d <= edge) {
+          h = rnd(x, 17.0)
+          fresh = 0
+          if (front > 0.0 && d > front - 3.0) { fresh = 1 }
+          crust = cs[6]
+          if (fresh == 1 || h < 0.25) { crust = cs[7] }
+          if (pass == 1) { rect(x, floorY, 1.0, 1.0, ink(cs[5], 0.5 * k * amp)) }
+          else {
+            rect(x, floorY, 1.0, 1.0, ink(crust, k))
+            tuft = 0.0
+            if (h < 0.45) { tuft = floor((1.0 + rnd(x, 5.0) * 3.0) * (1.0 - q * 0.6) + 0.5) }
+            if (tuft >= 1.0) {
+              rect(x, floorY - tuft + 1.0, 1.0, tuft - 1.0, ink(cs[5], k))
+              rect(x, floorY - tuft, 1.0, 1.0, ink(cs[7], k))
+            }
+            depth = floor((4.0 + rnd(x, 11.0) * 4.0) * (1.0 - q * 0.5))
+            boost = 1.0
+            if (fresh == 1) { boost = 1.3 }
+            a1 = max(1.0, floor(depth * 0.25))
+            a2 = max(a1 + 1.0, floor(depth * 0.55))
+            rect(x, floorY + 1.0, 1.0, a1, ink(cs[6], k * 0.95 * boost))
+            rect(x, floorY + 1.0 + a1, 1.0, a2 - a1, ink(cs[5], k * 0.7 * boost))
+            if (depth > a2) { rect(x, floorY + 1.0 + a2, 1.0, depth - a2, ink(cs[4], k * 0.35 * boost)) }
+          }
+        }
+      }
+    }
+  }
+
+  // Vapour sliding out from the running edge of the frost, and lifting off
+  // the floor as the ice melts: pale puffs that swell and thin.
+  puffs(start: i32, t: f32, cs: list<color>, reach: f32, pass: i32, amp: f32) {
+    if (pass == 0) {
+      for i in 0..16 {
+        stream_push(hash((start ^ puffKey) + i * 0x9e3779b1))
+        at = 0.0 to 1.0
+        left = chance(0.5)
+        vx = 15.0 to 55.0
+        vy = 2.0 to 15.0
+        life = 0.6 to 1.0
+        size = 3.0 to 5.5
+        pale = chance(0.7)
+        mx = -0.8 to 0.8
+        stream_pop()
+        sg = 1.0
+        if (left == 1) { sg = -1.0 }
+        born = charge + spread * at
+        x0 = cx + sg * frontAt(born, reach)
+        vxs = sg * vx
+        if (i >= 11) {
+          // These lift off the floor as the ice melts.
+          born = hold + melt * at
+          x0 = cx + mx * reach
+          vxs = vx * 0.15 * sg
+        }
+        age = t - born
+        if (age > 0.0 && age < life) {
+          u = age / life
+          p = {x0 + vxs * (1.0 - exp(-2.0 * age)) / 2.0, floorY - 1.0 - vy * age}
+          r = size * (0.6 + 0.6 * u) * (1.0 - 0.4 * abs(x0 - cx) / reach)
+          col = cs[5]
+          if (pale == 1) { col = cs[6] }
+          oval(p, r, r * 0.7, ink(col, 0.3 * sin(3.14159 * u)))
+        }
+      }
+    }
+  }
+
+  // Snow drifting down over the ice while it holds, swaying.
+  snow(start: i32, t: f32, cs: list<color>, reach: f32, pass: i32, amp: f32) {
+    for i in 0..10 {
+      stream_push(hash((start ^ flakeKey) + (i + 20) * 0x9e3779b1))
+      born = 0.0 to 1.0
+      x = -1.0 to 1.0
+      y = 28.0 to 60.0
+      fall = 6.0 to 14.0
+      life = 1.0 to 1.4
+      white = chance(0.5)
+      size = 0.5 to 1.4
+      sway = 0.0 to 6.28318
+      stream_pop()
+      b = charge + 0.2 + (hold - 0.3 - charge - 0.2) * born
+      age = t - b
+      if (age > 0.0 && age < life) {
+        p = {cx + x * reach * 0.9 + 2.0 * sin(age * 3.0 + sway), floorY - y + fall * age}
+        col = cs[6]
+        if (white == 1) { col = cs[7] }
+        speck(p, size, col, sin(3.14159 * age / life), pass, amp)
+      }
+    }
+  }
+
+  // Drips running off the ice as it melts.
+  drips(start: i32, t: f32, cs: list<color>, reach: f32, tall: f32, pass: i32, amp: f32) {
+    if (pass == 0 && t > hold) {
+      for i in 0..10 {
+        stream_push(hash((start ^ dripKey) + i * 0x9e3779b1))
+        born = 0.0 to 1.0
+        x = -0.85 to 0.85
+        hgt = 3.0 to 12.0
+        stream_pop()
+        b = hold + melt * born
+        age = t - b
+        if (age > 0.0) {
+          y0 = floorY - hgt * tall * (1.0 - sink(b))
+          y = y0 + 10.0 * age + 0.5 * grav * 0.6 * age * age
+          if (y < floorY) { rect(floor(cx + x * reach), floor(y), 1.0, 2.0, ink(cs[5], 0.9)) }
+        }
+      }
+    }
+  }
+
+  // ---- motion ----------------------------------------------------------------
+  // Where a particle launched from p0 at v (px/s) is after t seconds, with
+  // gravity g, drag and a floor it bounces off, stepped at 60 Hz.
+  fly(p0: vec2, v: vec2, t: f32, drag: f32, g: f32) -> vec2 {
+    p = p0
+    u = v
+    dt = 1.0 / 60.0
+    steps = int(t * 60.0)
+    for i in 0..steps {
+      u = {u.x * (1.0 - drag * dt), u.y * (1.0 - drag * dt) + g * dt}
+      p = p + u * dt
+      if (p.y > floorY - 1.0) {
+        p = {p.x, floorY - 1.0}
+        u = {u.x * 0.6, -abs(u.y) * 0.3}
+      }
+    }
+    return p + u * (t - float(steps) * dt)
+  }
+  // A flake thrown out at v: it slows fast in the air, then drifts down,
+  // swaying.
+  drift(p0: vec2, v: vec2, t: f32, sway: f32) -> vec2 {
+    e = (1.0 - exp(-4.0 * t)) / 4.0
+    return {p0.x + v.x * e + 2.0 * sin(t * 4.0 + sway), min(floorY - 1.0, p0.y + v.y * e + 9.0 * t)}
+  }
+
+  // ---- toolkit ---------------------------------------------------------------
+  // A soft round glow for the light mask: nested discs that add up to alpha a
+  // in the middle and fade out to radius r, so even the bloom stays soft.
+  haze(p: vec2, r: f32, col: color, a: f32) {
+    for i in 0..4 {
+      k = 1.0 - float(i) * 0.24
+      oval(p, r * k, r * k, ink(col, a * (0.12 + 0.08 * float(i))))
+    }
+  }
+  // The colour with its alpha scaled by a (clamped to 0..1).
+  ink(c: color, a: f32) -> color {
+    return color.set.a(c, int(clamp(a, 0.0, 1.0) * float(c.a)))
+  }
+  // A fixed pseudo-random number in 0..1 for column x and lane k.
+  rnd(x: f32, k: f32) -> f32 {
+    s = sin(x * 12.9898 + k * 78.233) * 43758.5453
+    return s - floor(s)
+  }
+  // Springs past 1 and settles (s sets the overshoot).
+  easeOutBack(x: f32, s: f32) -> f32 {
+    y = x - 1.0
+    return 1.0 + (s + 1.0) * y * y * y + s * y * y
+  }
+  // Eight steps from a dark shade of the colour, through it, to white.
+  rampFrom(c: color) -> list<color> {
+    base = color.set.a(c, 255)
+    return [color.mix(#08060c, base, 0.2), color.mix(#08060c, base, 0.4), color.mix(#08060c, base, 0.62),
+            color.mix(#08060c, base, 0.84), base, color.mix(base, #fff8e8, 0.35), color.mix(base, #fff8e8, 0.68), #ffffff]
+  }
+}

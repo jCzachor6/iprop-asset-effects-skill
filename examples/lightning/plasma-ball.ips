@@ -1,0 +1,370 @@
+// Plasma ball: a glass globe on a glossy stand. Plasma tendrils wander from a
+// pulsing electrode at its heart out to the glass, crackling as they go, and
+// fan into bright feet where they touch it; the glass flares round each foot,
+// the far tendrils glow dim through the globe, and the light spills over the
+// stand and the floor.
+//
+// After pixelfx's plasma ball (MIT, Patch and Hugo Duprez): see NOTICE.md.
+//
+// Category: lightning. Loop. Canvas 112x104, origin 56,96 (the floor under
+// the stand). Side view, light from the upper left.
+// Frames: the seed rolls 36, 45 or 54 frames at 16.5-19.5 fps; `frames`
+// retimes it. The tendrils wander on noise sampled round a circle and the
+// core pulses a whole number of times a cycle, so frame frames+1 is frame 1;
+// the crackle is re-rolled 20 times a second, whatever the frame count.
+// Light: the mask holds the tendrils and their feet, the core, a glow through
+// the glass and a pool on the floor; power pulses round 1.8, sigma 10, blur 2.
+//   tint   transparent rolls the plasma (45% violet, 30% blue, 15% rose, 10%
+//          green); a colour recolours it
+//
+// Variety: medium
+asset PlasmaBall {
+  size 112x104
+  origin 56,96
+
+  // ---- the effect contract -------------------------------------------------
+  // 0 draws the hero frame; 1..frames play the loop (frames+1 is frame 1).
+  input u32 frame = 0
+  // 0 rolls the frame count from the seed; 2..64 retimes the loop.
+  input u32 frames = 0
+  // 0 colour sprite, 1 light mask, 2 light under the pixels (the mask with
+  // power, sigma and blur applied, ready to add under the sprite).
+  input u32 renderPass = 0
+  // 0 keeps this frame's own value; above 0 forces it.
+  input f32 power = 0.0
+  input f32 sigma = 0.0
+  input f32 blur = 0.0
+  // Transparent rolls the plasma from the seed; a colour recolours it.
+  input color tint = #00000000
+
+  // {frames, fps, loop (1) or one-shot (0), the frame drawn}
+  output rect anim
+  // {x: power, y: sigma, radius: blur} of this frame's light
+  output circle glow
+
+  palette violet = [#1a0a2a, #3c1262, #6c20a0, #a43ed8, #d670f2, #f2aaff, #ffe4ff, #ffffff]
+  palette electric = [#0c0a30, #1e1e78, #3640c0, #4c7cf0, #58b0ff, #a0dcff, #e2f6ff, #ffffff]
+  palette rose = [#2a0818, #5a1032, #94205a, #d03c86, #f070b0, #ffa8d4, #ffe0f0, #ffffff]
+  palette toxic = [#081a10, #0e3a1e, #187030, #2ea84a, #58dc6a, #a0f4a0, #e0ffe0, #ffffff]
+  // The stand: dark glossy metal, outline to highlight.
+  palette metal = [#0d0b12, #17131f, #231d2d, #342b43, #4b3f60, #6b5c87]
+
+  const distribution looks = weighted {1: 45, 2: 30, 3: 15, 4: 10}
+  const f32 heroPhase = 0.3
+  const f32 sigmaMax = 12.0
+  const f32 cx = 56.0
+  const f32 floorY = 96.0
+  const f32 tau = 6.28318
+  // The stand's body in bands across it (0 its left edge, 1 its right) and
+  // the metal tone of each: lit flank, a specular stripe, the far side dark.
+  const list<f32> bandU = [0.0, 0.1, 0.2, 0.3, 0.42, 0.6, 0.8, 0.92, 1.0]
+  const list<i32> bandTone = [2, 3, 5, 4, 3, 2, 1, 0]
+
+  // Stream keys, one per purpose; per-tendril streams add i * 0x9e3779b1.
+  const i32 timeKey = 0x68e31da4
+  const i32 lookKey = 0x2f6b9a13
+  const i32 tendrilKey = 0x1b873593
+  const i32 crackleKey = 0x2545f491
+
+  draw {
+    start = seed
+    // ---- timing: the seed's own frame count, or the one asked for ----------
+    stream_push(hash(start ^ timeKey))
+    rolled = pick(36, 45, 54)
+    rate = 16.5 to 19.5
+    stream_pop()
+    dur = float(rolled) / rate
+    n = rolled
+    if (frames >= 2) { n = min(frames, 64) }
+    f = frame
+    if (f == 0) { f = clamp(int(heroPhase * float(n)) + 1, 1, n) }
+    f = (f - 1) % n + 1
+    phase = (float(f) - 1.0) / float(n)
+
+    // ---- the look: roll everything, whatever the inputs --------------------
+    stream_push(hash(start ^ lookKey))
+    kind = 1 to 4 with looks
+    rg = 21.0 to 25.0 with gaussian(mean = 23.5, sigma = 1.0)
+    count = 7 to 11
+    wander = 0.7 to 1.1
+    stream_pop()
+    cs = violet
+    if (kind == 2) { cs = electric }
+    if (kind == 3) { cs = rose }
+    if (kind == 4) { cs = toxic }
+    if (tint.a != 0) { cs = rampFrom(tint) }
+
+    // The crackle: re-rolled at a fixed rate, a whole number of times a cycle.
+    ticks = max(1, round(dur * 20.0))
+    tick = int(floor(phase * float(ticks)))
+    stream_push(hash((start ^ crackleKey) + tick * 0x9e3779b1))
+    jolt = 0.0 to 1.0
+    stream_pop()
+    beats = max(1, round(dur * 2.0))
+    pulse = 0.85 + 0.15 * sin(tau * phase * float(beats)) + 0.1 * (jolt - 0.5)
+
+    // ---- this frame's light ------------------------------------------------
+    lp = 1.8 * pulse
+    ls = 10.0
+    lb = 2.0
+    if (power > 0.0) { lp = power }
+    if (sigma > 0.0) { ls = sigma }
+    if (blur > 0.0) { lb = blur }
+    lp = clamp(lp, 0.0, 16.0)
+    ls = clamp(ls, 0.0, sigmaMax)
+    lb = clamp(lb, 0.0, 4.0)
+    anim = {float(n), float(n) / dur, 1.0, float(f)}
+    glow = {lp, ls, lb}
+
+    // ---- the passes (keep as is) -------------------------------------------
+    if (renderPass == 1) {
+      layer mask1(alpha = surface.source_over) { scene(start, phase, tick, cs, rg, count, wander, pulse, 1, 1.0) }
+      surface.paint(mask1, blend = surface.source_over)
+    } else if (renderPass == 2) {
+      if (lp > 0.0) {
+        k = max(1, int(ceil(lp)))
+        layer mask2(alpha = surface.source_over) { scene(start, phase, tick, cs, rg, count, wander, pulse, 1, lp / float(k)) }
+        pool = mask2.blur(ls)
+        bloom = mask2.blur(lb)
+        for i in 0..k { surface.paint(pool, blend = surface.source_over) }
+        for i in 0..k { surface.paint(bloom, blend = surface.source_over) }
+      }
+    } else {
+      layer sprite(alpha = surface.source_over) { scene(start, phase, tick, cs, rg, count, wander, pulse, 0, 1.0) }
+      surface.paint(sprite, blend = surface.source_over)
+    }
+  }
+
+  // Everything at this phase of the cycle, back to front: the stand, the
+  // glass's tint, the far tendrils, the core, the near tendrils, the shell.
+  // pass 0 paints colour; pass 1 paints only what emits light, alpha scaled
+  // by amp.
+  scene(start: i32, phase: f32, tick: i32, cs: list<color>, rg: f32, count: i32, wander: f32, pulse: f32, pass: i32, amp: f32) {
+    g = {cx, floorY - 31.0 - rg}
+    if (pass == 1) {
+      // Light only: the globe's glow, and a pool on the floor and the stand.
+      haze({cx, floorY - 8.0}, 34.0, cs[3], 0.22 * pulse * amp)
+      haze(g, rg + 10.0, cs[3], 0.32 * pulse * amp)
+    }
+    stand(cs, pulse, pass, amp)
+    if (pass == 0) { glass(g, rg, cs) }
+    for i in 0..count { tendril(start, i, count, phase, tick, g, rg, wander, cs, 0, pass, amp) }
+    core(g, pulse, cs, pass, amp)
+    for i in 0..count { tendril(start, i, count, phase, tick, g, rg, wander, cs, 1, pass, amp) }
+    if (pass == 0) { shell(g, rg, cs) }
+  }
+
+  // ---- the stand -----------------------------------------------------------------
+  // A flared body of glossy metal under a collar that holds the glass, on a
+  // flat plinth; its top catches the plasma's light. A small lamp glows on it.
+  stand(cs: list<color>, pulse: f32, pass: i32, amp: f32) {
+    lamp = {cx + 9.0, floorY - 9.0}
+    if (pass == 0) {
+      top = floorY - 27.0
+      low = floorY - 5.0
+      for b in 0..8 {
+        u0 = bandU[b]
+        u1 = bandU[b + 1]
+        tone = bandTone[b]
+        // The body widens from a half-width of 9 under the collar to 15.
+        poly(metal[tone], cx + (2.0 * u0 - 1.0) * 9.0, top, cx + (2.0 * u1 - 1.0) * 9.0, top,
+             cx + (2.0 * u1 - 1.0) * 13.56, low, cx + (2.0 * u0 - 1.0) * 13.56, low)
+        poly(metal[max(0, tone - 1)], cx + (2.0 * u0 - 1.0) * 13.56, low, cx + (2.0 * u1 - 1.0) * 13.56, low,
+             cx + (2.0 * u1 - 1.0) * 15.0, floorY - 2.0, cx + (2.0 * u0 - 1.0) * 15.0, floorY - 2.0)
+      }
+      // The plasma's light on the upper left of the body.
+      poly(ink(cs[4], 0.3 * pulse), cx - 9.0, top, cx, top, cx, top + 3.0, cx - 9.5, top + 3.0)
+      // The collar, lit from the glass above.
+      rect(cx - 7.0, floorY - 32.0, 14.0, 2.0, metal[5])
+      rect(cx - 7.0, floorY - 32.0, 8.0, 2.0, cs[4])
+      rect(cx - 7.0, floorY - 30.0, 14.0, 3.0, metal[1])
+      rect(cx - 7.0, floorY - 30.0, 10.0, 3.0, metal[3])
+      rect(cx - 7.0, floorY - 30.0, 4.0, 3.0, metal[5])
+      // The plinth.
+      rect(cx - 16.0, floorY - 2.0, 32.0, 1.0, metal[2])
+      rect(cx - 16.0, floorY - 2.0, 17.0, 1.0, metal[4])
+      rect(cx - 16.0, floorY - 1.0, 32.0, 1.0, metal[1])
+      rect(lamp.x, lamp.y, 1.0, 1.0, cs[5])
+    } else {
+      rect(lamp.x, lamp.y, 1.0, 1.0, ink(cs[5], amp))
+      haze(lamp + {0.5, 0.5}, 3.0, cs[5], 0.5 * amp)
+    }
+  }
+
+  // The glass: a faint tint over what is behind it, denser toward the rim.
+  glass(g: vec2, rg: f32, cs: list<color>) {
+    oval(g, rg - 0.5, rg - 0.5, ink(cs[0], 0.25))
+    layer disc(alpha = surface.source_over) { oval(g, rg - 0.5, rg - 0.5, #ffffff) }
+    layer hole(alpha = surface.source_over) { oval(g, rg - 4.0, rg - 4.0, #ffffff) }
+    surface.paint(mask.subtract(mask.from(disc), mask.from(hole)), color = ink(cs[1], 0.35))
+  }
+
+  // The electrode at the heart of the globe, swelling with the pulse.
+  core(g: vec2, pulse: f32, cs: list<color>, pass: i32, amp: f32) {
+    cr = 3.6 + 0.5 * pulse
+    k = 1.0
+    if (pass == 1) { k = amp }
+    oval(g, cr + 1.3, cr + 1.3, ink(cs[3], k))
+    oval(g, cr, cr, ink(cs[5], k))
+    oval(g - {0.6, 0.6}, cr * 0.55, cr * 0.55, ink(cs[6], k))
+    oval(g - {0.8, 0.8}, cr * 0.25, cr * 0.25, ink(cs[7], k))
+    if (pass == 1) { haze(g, 16.0, cs[5], 0.65 * pulse * amp) }
+  }
+
+  // The glass shell: a thin dark rim, a ring lit by the plasma, a bright
+  // specular arc upper left and a faint reflection lower right.
+  shell(g: vec2, rg: f32, cs: list<color>) {
+    for k in 0..64 {
+      a0 = tau * float(k) / 64.0
+      a1 = tau * float(k + 1) / 64.0
+      am = (a0 + a1) * 0.5
+      line(g + {cos(a0) * (rg + 1.6), sin(a0) * (rg + 1.6)}, g + {cos(a1) * (rg + 1.6), sin(a1) * (rg + 1.6)}, 1, cs[1])
+      c = cs[3]
+      if (am > 2.2 && am < 3.3) { c = cs[5] }
+      if (am > 0.3 && am < 1.3) { c = cs[4] }
+      line(g + {cos(a0) * (rg + 0.6), sin(a0) * (rg + 0.6)}, g + {cos(a1) * (rg + 0.6), sin(a1) * (rg + 0.6)}, 1, c)
+    }
+    for k in 0..10 {
+      u0 = float(k) / 10.0
+      u1 = float(k + 1) / 10.0
+      a0 = 3.55 + u0
+      a1 = 3.55 + u1
+      c = cs[6]
+      if (u0 > 0.25 && u1 < 0.75) { c = cs[7] }
+      line(g + {cos(a0) * (rg - 1.6), sin(a0) * (rg - 1.6)}, g + {cos(a1) * (rg - 1.6), sin(a1) * (rg - 1.6)}, 1, c)
+    }
+    for k in 0..18 {
+      a = 0.35 + 0.045 * float(k)
+      rect(floor(g.x + cos(a) * (rg - 2.6)), floor(g.y + sin(a) * (rg - 2.6)), 1.0, 1.0, ink(cs[4], 0.85))
+    }
+    rect(floor(g.x - rg * 0.42), floor(g.y - rg * 0.62), 1.0, 1.0, cs[7])
+  }
+
+  // ---- the tendrils --------------------------------------------------------------
+  // Tendril i: its foot wanders over the glass; those whose foot is on the
+  // near face (front 1) are drawn bright over the core, the others dim behind
+  // it. A filament bowed by two slow waves and crackling with fresh jitter
+  // every tick runs from the core to the glass and fans into three short
+  // fingers where it touches.
+  tendril(start: i32, i: i32, count: i32, phase: f32, tick: i32, g: vec2, rg: f32, wander: f32, cs: list<color>, front: i32, pass: i32, amp: f32) {
+    key = (start ^ tendrilKey) + i * 0x9e3779b1
+    a = (float(i) + 0.5) / float(count) * tau + 0.9 * wander * loopNoise(phase, 0.9, key)
+    z = loopNoise(phase, 0.7, key + 3)
+    near = 0
+    if (z > -0.15) { near = 1 }
+    if (near == front) {
+      rho = rg * (0.72 + 0.28 * sqrt(1.0 - min(1.0, z * z * 1.6)))
+      e = g + {cos(a) * rho, sin(a) * rho}
+      w1 = loopNoise(phase, 1.1, key + 5)
+      w2 = loopNoise(phase, 1.3, key + 6)
+      s = g + {cos(a) * 4.5, sin(a) * 4.5}
+      fresh = hash((start ^ crackleKey) + (tick * 32 + i) * 0x9e3779b1)
+      // The filament: a soft shadow under the near ones, then the line.
+      if (front == 1 && pass == 0) { filament(s, e, w1, w2, i, fresh, {1.0, 1.0}, cs, 0, 2, pass, amp) }
+      filament(s, e, w1, w2, i, fresh, {0.0, 0.0}, cs, front, 1, pass, amp)
+      // Where it touches, the glass flares.
+      if (front == 1) {
+        k = 1.0
+        if (pass == 1) { k = amp }
+        oval(e, 1.6, 1.6, ink(cs[6], k))
+        rect(floor(e.x), floor(e.y), 1.0, 1.0, ink(cs[7], k))
+        if (rho > rg * 0.93) {
+          for sd in 0..2 {
+            q = a + (float(sd) * 2.0 - 1.0) * 0.09
+            rect(floor(g.x + cos(q) * (rg - 0.5)), floor(g.y + sin(q) * (rg - 0.5)), 1.0, 1.0, ink(cs[6], k))
+          }
+        }
+        if (pass == 1) { haze(e, 9.0, cs[5], 0.55 * amp) }
+      } else if (pass == 1) { haze(e, 6.0, cs[4], 0.25 * amp) }
+    }
+  }
+
+  // One filament from s to e and its three fingers. fresh seeds the crackle;
+  // off shifts the whole thing (the shadow); bright 1 the near colours, 0
+  // the far ones; mode 2 paints it all in the shadow colour.
+  filament(s: vec2, e: vec2, w1: f32, w2: f32, i: i32, fresh: i32, off: vec2, cs: list<color>, bright: i32, mode: i32, pass: i32, amp: f32) {
+    d = e - s
+    len = max(vec2.len(d), 1.0)
+    nrm = {-d.y / len, d.x / len}
+    m = max(4, round(len / 2.2))
+    stream_push(fresh)
+    hot = chance(0.2)
+    prev = s + off
+    foot = e
+    stop = m + 1
+    for j in 1..stop {
+      u = float(j) / float(m)
+      jr = -0.7 to 0.7
+      jit = 0.0
+      if (j < m) { jit = jr }
+      w = 3.2 * w1 * sin(3.14159 * u) + 1.6 * w2 * sin(tau * u + float(i))
+      p = s + d * u + nrm * (w + jit) + off
+      if (j == m - 1) { foot = p }
+      at0 = float(j - 1) / float(m)
+      c = cs[3]
+      k = 0.4
+      if (bright == 1) {
+        c = cs[5]
+        if (hot == 1 || at0 > 0.75 || at0 < 0.2) { c = cs[6] }
+        k = 1.0
+      }
+      if (mode == 2) { c = cs[3] }
+      if (pass == 1) { c = ink(c, k * amp) }
+      line(prev, p, 1, c)
+      if (pass == 1 && j % 3 == 0) {
+        gk = 0.12
+        if (bright == 1) { gk = 0.24 }
+        if (bright == 1 && hot == 1) { gk = 0.4 }
+        r = 4.0
+        if (bright == 1) { r = 6.0 }
+        haze(prev, r, cs[4], gk * amp)
+      }
+      prev = p
+    }
+    // The foot: the filament fans into short fingers where it meets the glass.
+    ang = atan2(d)
+    for k2 in 0..3 {
+      spread = 0.25 to 0.45
+      reach = 2.5 to 5.0
+      jx = -0.6 to 0.6
+      jy = -0.6 to 0.6
+      q = ang + (float(k2) - 1.0) * spread
+      mid = foot + {cos(q) * reach * 0.5 + jx, sin(q) * reach * 0.5 + jy}
+      tip = foot + {cos(q) * reach, sin(q) * reach}
+      c = cs[2]
+      if (bright == 1) { c = cs[6] }
+      if (mode == 2) { c = cs[3] }
+      if (pass == 1) { c = ink(c, 0.6 * amp) }
+      line(foot, mid, 1, c)
+      line(mid, tip, 1, c)
+    }
+    stream_pop()
+  }
+
+  // ---- toolkit ---------------------------------------------------------------------
+  // Smooth noise in about -1..1 that loops with the phase: gradient noise
+  // sampled round a circle of radius rad, so phase 0 and 1 meet. A larger
+  // radius wanders faster.
+  loopNoise(phase: f32, rad: f32, key: i32) -> f32 {
+    q = tau * phase
+    return noise.grad(cos(q) * rad + 50.0, sin(q) * rad + 50.0, key)
+  }
+  // A soft round glow for the light mask: nested discs that add up to alpha a
+  // in the middle and fade out to radius r.
+  haze(p: vec2, r: f32, col: color, a: f32) {
+    for i in 0..4 {
+      k = 1.0 - float(i) * 0.24
+      oval(p, r * k, r * k, ink(col, a * (0.12 + 0.08 * float(i))))
+    }
+  }
+  // The colour with its alpha scaled by a (clamped to 0..1).
+  ink(c: color, a: f32) -> color {
+    return color.set.a(c, int(clamp(a, 0.0, 1.0) * float(c.a)))
+  }
+  // Eight steps from a dark shade of the colour, through it, to white.
+  rampFrom(c: color) -> list<color> {
+    base = color.set.a(c, 255)
+    return [color.mix(#08060c, base, 0.2), color.mix(#08060c, base, 0.4), color.mix(#08060c, base, 0.62),
+            color.mix(#08060c, base, 0.84), base, color.mix(base, #fff8e8, 0.35), color.mix(base, #fff8e8, 0.68), #ffffff]
+  }
+}

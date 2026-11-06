@@ -1,0 +1,9 @@
+schema_version: "1.1"
+name: rune-trap-new-effect
+expected_outcome: |
+  fx/rune-trap.ips in the working directory (not in the skill's folder) is a 112x96 one-shot that
+  keeps the effect contract: a violet rune circle draws itself on the floor, then fires a column of
+  light and fades out, ending empty, in about 1.2-1.5 s. Its light mask holds the runes and the
+  column, the light rises when it fires and is gone before the end, and seeds differ in families
+  (palettes, rune counts or shapes, ring styles, timing), as `Variety: high` in its header says.
+  check-fx passes it without failures and fx/rune-trap.iprop is compiled from the final source.

@@ -1,0 +1,260 @@
+// Poison cloud: a low, heavy cloud of poison squatting on the floor. Its
+// billows churn and swell in place, painted in coats across the whole mass
+// (a dark rim, the body, a lit top and a sickly highlight from the upper
+// left), so it reads as one cloud, not a heap of balls. Wisps peel off its
+// edges and drift away thinning; bubbles well up through it and pop in a
+// ring of droplets; a faint sick glow hangs over it.
+//
+// Category: nature. Loop. Canvas 112x64, origin 56,58 (the floor under the
+// middle of the cloud). Side view at the scale of a 24x38 character, light
+// from the upper left.
+// Frames: the seed rolls 18, 24 or 36 frames at 15-18 fps; `frames` retimes
+// it. Billows bob and swell a whole number of times a cycle and wisps and
+// bubbles are born a whole number of times a cycle, so frame frames+1 is
+// frame 1.
+// Light: the mask holds the cloud's lit tops faintly, the bubbles and their
+// pops; power breathes round 1.4, sigma 10, blur 2.
+//   tint   transparent rolls the colour (60% toxic green, 25% venom violet,
+//          15% plague ochre); a colour recolours the cloud
+//
+// Variety: medium
+asset PoisonCloud {
+  size 112x64
+  origin 56,58
+
+  // ---- the effect contract -------------------------------------------------
+  // 0 draws the hero frame; 1..frames play the cycle; a loop wraps, so
+  // frames+1 draws frame 1 again.
+  input u32 frame = 0
+  // 0 rolls the frame count from the seed; 2..64 retimes the effect.
+  input u32 frames = 0
+  // 0 colour sprite, 1 light mask, 2 light under the pixels (the mask with
+  // power, sigma and blur applied, ready to add under the sprite).
+  input u32 renderPass = 0
+  // 0 keeps this frame's own value; above 0 forces it.
+  input f32 power = 0.0
+  input f32 sigma = 0.0
+  input f32 blur = 0.0
+  // Transparent rolls the colour from the seed; a colour recolours it.
+  input color tint = #00000000
+
+  // {frames, fps, loop (1) or one-shot (0), the frame drawn (0 when done)}
+  output rect anim
+  // {x: power, y: sigma, radius: blur} of this frame's light
+  output circle glow
+
+  palette toxic = [#0c1a0a, #1c3a14, #2e5e1c, #4a8a24, #78b830, #b0e050, #e0ff9a, #ffffff]
+  palette venom = [#140a1c, #2a1440, #44206a, #663494, #9050c0, #c088e8, #ead0ff, #ffffff]
+  palette plague = [#1a1408, #3a2c10, #5e4818, #8a6c20, #b8962c, #e0c450, #fff0a0, #ffffff]
+
+  const distribution looks = weighted {1: 60, 2: 25, 3: 15}
+  const f32 heroPhase = 0.0
+  const f32 sigmaMax = 12.0
+  const f32 cx = 56.0
+  const f32 floorY = 58.0
+  const f32 tau = 6.28318
+
+  // Stream keys, one per purpose; per-particle streams add i * 0x9e3779b1.
+  const i32 timeKey = 0x68e31da4
+  const i32 lookKey = 0x2f6b9a13
+  const i32 billowKey = 0x1b873593
+  const i32 wispKey = 0x3c6ef372
+  const i32 bubbleKey = 0x2545f491
+
+  draw {
+    start = seed
+    // ---- timing: the seed's own frame count, or the one asked for ----------
+    stream_push(hash(start ^ timeKey))
+    rolled = pick(18, 24, 36)
+    rate = 15.0 to 18.0
+    stream_pop()
+    dur = float(rolled) / rate
+    n = rolled
+    if (frames >= 2) { n = min(frames, 64) }
+    f = frame
+    if (f == 0) { f = clamp(int(heroPhase * float(n)) + 1, 1, n) }
+    f = (f - 1) % n + 1
+    phase = (float(f) - 1.0) / float(n)
+
+    // ---- the look: roll everything, whatever the inputs --------------------
+    stream_push(hash(start ^ lookKey))
+    kind = 1 to 3 with looks
+    wide = 0.85 to 1.15 with gaussian(mean = 1.0, sigma = 0.08)
+    tall = 0.85 to 1.15 with gaussian(mean = 1.0, sigma = 0.08)
+    billows = 11 to 15
+    stream_pop()
+    cs = toxic
+    if (kind == 2) { cs = venom }
+    if (kind == 3) { cs = plague }
+    if (tint.a != 0) { cs = rampFrom(tint) }
+    shape = {wide, tall}
+
+    // ---- this frame's light ------------------------------------------------
+    lp = 1.4 + 0.25 * sin(tau * phase)
+    ls = 10.0
+    lb = 2.0
+    if (power > 0.0) { lp = power }
+    if (sigma > 0.0) { ls = sigma }
+    if (blur > 0.0) { lb = blur }
+    lp = clamp(lp, 0.0, 16.0)
+    ls = clamp(ls, 0.0, sigmaMax)
+    lb = clamp(lb, 0.0, 4.0)
+    anim = {float(n), float(n) / dur, 1.0, float(f)}
+    glow = {lp, ls, lb}
+
+    // ---- the passes (keep as is) -------------------------------------------
+    if (renderPass == 1) {
+      layer mask1(alpha = surface.source_over) { scene(start, phase, cs, shape, billows, 1, 1.0) }
+      surface.paint(mask1, blend = surface.source_over)
+    } else if (renderPass == 2) {
+      if (lp > 0.0) {
+        k = max(1, int(ceil(lp)))
+        layer mask2(alpha = surface.source_over) { scene(start, phase, cs, shape, billows, 1, lp / float(k)) }
+        pool = mask2.blur(ls)
+        bloom = mask2.blur(lb)
+        for i in 0..k { surface.paint(pool, blend = surface.source_over) }
+        for i in 0..k { surface.paint(bloom, blend = surface.source_over) }
+      }
+    } else {
+      layer sprite(alpha = surface.source_over) { scene(start, phase, cs, shape, billows, 0, 1.0) }
+      surface.paint(sprite, blend = surface.source_over)
+    }
+  }
+
+  // Everything at this phase of the cycle, back to front. pass 0 paints
+  // colour; pass 1 paints only what emits light, alpha scaled by amp.
+  scene(start: i32, phase: f32, cs: list<color>, shape: vec2, billows: i32, pass: i32, amp: f32) {
+    if (pass == 1) {
+      // Light only: a faint sick glow over the cloud.
+      for i in 0..3 {
+        k = 1.0 - float(i) * 0.28
+        oval(cx, floorY - 12.0 * shape.y, 30.0 * shape.x * k, 12.0 * shape.y * k, ink(cs[5], (0.08 + 0.05 * float(i)) * amp))
+      }
+    }
+    wisps(start, phase, cs, shape, pass, amp)
+    cloud(start, phase, cs, shape, billows, pass, amp)
+    bubbles(start, phase, cs, shape, pass, amp)
+  }
+
+  // The cloud: billows on a low dome, each bobbing and swelling a whole
+  // number of times a cycle, painted coat by coat across all of them.
+  cloud(start: i32, phase: f32, cs: list<color>, shape: vec2, billows: i32, pass: i32, amp: f32) {
+    for coat in 0..4 {
+      if (pass == 0 || coat >= 2) {
+        for i in 0..billows {
+          stream_push(hash((start ^ billowKey) + i * 0x9e3779b1))
+          u = -1.0 to 1.0
+          lift = 0.0 to 1.0
+          size = 5.5 to 9.0
+          bob = pick(1, 2)
+          swell = pick(1, 2, 3)
+          ph = 0.0 to 6.28318
+          stream_pop()
+          // Big billows low in the middle, smaller ones up top and out at the
+          // ends, all sitting on the floor.
+          x = cx + u * 26.0 * shape.x
+          dome = 1.0 - u * u
+          r = size * (0.6 + 0.4 * dome) * (1.0 + 0.12 * sin(tau * phase * float(swell) + ph))
+          y = floorY - r * 0.75 - lift * 14.0 * dome * shape.y
+          p = {x + 1.5 * sin(tau * phase * float(bob) + ph), y + 1.2 * cos(tau * phase * float(bob) + ph * 1.7)}
+          if (pass == 0) {
+            if (coat == 0) { oval(p, r + 1.2, r * 0.82 + 1.0, ink(cs[1], 0.6)) }
+            if (coat == 1) { oval(p, r, r * 0.82, ink(cs[2], 0.8)) }
+            if (coat == 2) { oval(p - {r * 0.22, r * 0.25}, r * 0.68, r * 0.55, cs[3]) }
+            if (coat == 3) { oval(p - {r * 0.38, r * 0.42}, r * 0.32, r * 0.26, cs[4]) }
+          } else {
+            if (coat == 2) { oval(p - {r * 0.22, r * 0.25}, r * 0.68, r * 0.55, ink(cs[4], 0.18 * amp)) }
+            if (coat == 3) { oval(p - {r * 0.38, r * 0.42}, r * 0.32, r * 0.26, ink(cs[5], 0.35 * amp)) }
+          }
+        }
+      }
+    }
+  }
+
+  // Wisps peeling off the cloud's edges: small puffs that drift out and up,
+  // swell and thin away.
+  wisps(start: i32, phase: f32, cs: list<color>, shape: vec2, pass: i32, amp: f32) {
+    if (pass == 0) {
+      for i in 0..10 {
+        stream_push(hash((start ^ wispKey) + i * 0x9e3779b1))
+        at = 0.0 to 1.0
+        births = pick(1, 2)
+        left = chance(0.5)
+        vx = 5.0 to 12.0
+        vy = 3.0 to 9.0
+        size = 2.5 to 4.0
+        y0 = 4.0 to 16.0
+        stream_pop()
+        u = fract(phase * float(births) + at)
+        life = dur1(births)
+        sg = 1.0
+        if (left == 1) { sg = -1.0 }
+        p = {cx + sg * (20.0 * shape.x + vx * u * life), floorY - y0 * shape.y - vy * u * life * 1.5}
+        r = size * (1.0 + 0.8 * u)
+        a = sin(3.14159 * u)
+        oval(p, r + 0.8, r * 0.8 + 0.6, ink(cs[1], 0.45 * a))
+        oval(p, r, r * 0.8, ink(cs[2], 0.6 * a))
+        oval(p - {r * 0.3, r * 0.3}, r * 0.45, r * 0.35, ink(cs[3], 0.6 * a))
+      }
+    }
+  }
+  // A notional life for a puff born `births` times a cycle (keeps the drift
+  // the same however many frames there are).
+  dur1(births: i32) -> f32 {
+    return 1.2 / float(births)
+  }
+
+  // Bubbles welling up through the cloud: they swell as they rise, then pop
+  // in a ring of droplets.
+  bubbles(start: i32, phase: f32, cs: list<color>, shape: vec2, pass: i32, amp: f32) {
+    for i in 0..6 {
+      stream_push(hash((start ^ bubbleKey) + i * 0x9e3779b1))
+      at = 0.0 to 1.0
+      births = pick(1, 2)
+      u0 = -0.7 to 0.7
+      top = 14.0 to 24.0
+      size = 1.5 to 2.6
+      stream_pop()
+      u = fract(phase * float(births) + at)
+      x = cx + u0 * 22.0 * shape.x
+      if (u < 0.75) {
+        k = u / 0.75
+        p = {x + 0.8 * sin(k * 9.0), floorY - 4.0 - top * k * shape.y}
+        r = size * (0.5 + 0.5 * k)
+        kk = 1.0
+        if (pass == 1) { kk = 0.7 * amp }
+        oval(p, r + 0.6, r + 0.6, ink(cs[5], kk))
+        oval(p, r - 0.4, r - 0.4, ink(cs[3], kk))
+        rect(floor(p.x - r * 0.4), floor(p.y - r * 0.4), 1.0, 1.0, ink(cs[7], kk))
+      } else {
+        // The pop: a ring of four droplets flung out, fading.
+        k = (u - 0.75) / 0.25
+        c = {x, floorY - 4.0 - top * shape.y}
+        d = 1.5 + 5.0 * k
+        kk = 1.0 - k
+        if (pass == 1) { kk = kk * amp }
+        for j in 0..4 {
+          a = 0.785 + 1.5708 * float(j)
+          rect(floor(c.x + cos(a) * d), floor(c.y + sin(a) * d * 0.8 + 6.0 * k * k), 1.0, 1.0, ink(cs[6], kk))
+        }
+        if (k < 0.3) { oval(c, size + 1.0, size + 1.0, ink(cs[6], 0.6 * kk)) }
+      }
+    }
+  }
+
+  // ---- toolkit ---------------------------------------------------------------
+  // The colour with its alpha scaled by a (clamped to 0..1).
+  ink(c: color, a: f32) -> color {
+    return color.set.a(c, int(clamp(a, 0.0, 1.0) * float(c.a)))
+  }
+  // The fractional part: fract(phase * n + offset) repeats n times a loop.
+  fract(x: f32) -> f32 {
+    return x - floor(x)
+  }
+  // Eight steps from a dark shade of the colour, through it, to white.
+  rampFrom(c: color) -> list<color> {
+    base = color.set.a(c, 255)
+    return [color.mix(#08060c, base, 0.2), color.mix(#08060c, base, 0.4), color.mix(#08060c, base, 0.62),
+            color.mix(#08060c, base, 0.84), base, color.mix(base, #fff8e8, 0.35), color.mix(base, #fff8e8, 0.68), #ffffff]
+  }
+}

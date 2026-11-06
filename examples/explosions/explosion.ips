@@ -1,0 +1,537 @@
+// Explosion: a ground blast seen from the side. A white hero frame with a
+// star flare, a fireball of puffs that cool from white through yellow and
+// orange into soot, a shock ring racing over the floor and one through the
+// air, sparks that skip off the ground, rocks that tumble and settle, embers
+// riding the heat and a smoke column that rolls up and thins. The floor stays
+// scorched, its cracks glowing, until the smoke clears.
+//
+// Category: explosions. One-shot. Canvas 144x128, origin 72,116 (the floor
+// under the blast). Side view at the scale of a 24x38 character, light from
+// the upper left.
+// Frames: the seed rolls 18-27 frames over 1.2-1.5 s; `frames` retimes it.
+// Light: the mask holds the flash, the fireball, sparks, embers, hot rocks and
+// the glowing scorch, plus a light-only pool on the floor. Power flares to
+// about 7 on the flash and falls with the fire, sigma widens from 7 to 12,
+// blur 1.5.
+//   style  0 rolls (60% fire, 25% dirt, 15% plasma); 1 fire, 2 dirt (brown
+//          dust, more rocks, a small fireball), 3 plasma (blue, double shock
+//          ring, more sparks, no smoke)
+//   tint   transparent keeps the style's palette; a colour recolours the blast
+//
+// Variety: medium
+asset Explosion {
+  size 144x128
+  origin 72,116
+
+  // ---- the effect contract -------------------------------------------------
+  // 0 draws the hero frame; 1..frames play the effect; past its end a
+  // one-shot draws nothing.
+  input u32 frame = 0
+  // 0 rolls the frame count from the seed; 2..64 retimes the effect.
+  input u32 frames = 0
+  // 0 colour sprite, 1 light mask, 2 light under the pixels (the mask with
+  // power, sigma and blur applied, ready to add under the sprite).
+  input u32 renderPass = 0
+  // 0 keeps this frame's own value; above 0 forces it.
+  input f32 power = 0.0
+  input f32 sigma = 0.0
+  input f32 blur = 0.0
+  // 0 rolls the style; 1 fire, 2 dirt, 3 plasma.
+  input u32 style = 0
+  // Transparent rolls nothing: the style's palette. A colour recolours it.
+  input color tint = #00000000
+
+  // {frames, fps, loop (1) or one-shot (0), the frame drawn (0 when done)}
+  output rect anim
+  // {x: power, y: sigma, radius: blur} of this frame's light
+  output circle glow
+
+  palette fire = [#2b0f14, #5c1a16, #a3271b, #e0471d, #ff7a24, #ffb43a, #ffe27a, #fffbe6]
+  palette plasma = [#0b1030, #182a6a, #2156b0, #2f8ae0, #4fc4ff, #95e6ff, #d8f8ff, #ffffff]
+  palette soot = [#141118, #231e27, #36303c, #4e4755, #6c6573]
+  palette dust = [#2a1e18, #45332a, #64503c, #876c50, #a88c68]
+  palette rock = [#17141b, #2d2733, #4a4250, #6e6474]
+
+  const distribution styles = weighted {1: 60, 2: 25, 3: 15}
+  const f32 heroPhase = 0.09
+  const f32 sigmaMax = 12.0
+  const f32 cx = 72.0
+  const f32 floorY = 116.0
+
+  // Stream keys, one per purpose; per-particle streams add i * 0x9e3779b1.
+  const i32 timeKey = 0x68e31da4
+  const i32 styleKey = 0x2f6b9a13
+  const i32 shapeKey = 0x1b873593
+  const i32 fireKey = 0x85157af5
+  const i32 smokeKey = 0x632be5ab
+  const i32 sparkKey = 0x2545f491
+  const i32 rockKey = 0x4f1bbcdc
+  const i32 emberKey = 0x7a3d1f29
+  const i32 scorchKey = 0x5bd1e995
+
+  draw {
+    start = seed
+    // ---- timing: the seed's own frame count, or the one asked for ----------
+    stream_push(hash(start ^ timeKey))
+    rolled = 18 to 27
+    dur = 1.2 to 1.5 with gaussian(mean = 1.35, sigma = 0.08)
+    stream_pop()
+    n = rolled
+    if (frames >= 2) { n = min(frames, 64) }
+    f = frame
+    if (f == 0) { f = clamp(int(heroPhase * float(n)) + 1, 1, n) }
+    t = (float(f) - 0.5) / float(n) * dur
+
+    // ---- the look ----------------------------------------------------------
+    stream_push(hash(start ^ styleKey))
+    kind = 1 to 3 with styles
+    stream_pop()
+    if (style >= 1 && style <= 3) { kind = style }
+    stream_push(hash(start ^ shapeKey))
+    scale = 0.88 to 1.12 with gaussian(mean = 1.0, sigma = 0.06)
+    lean = -0.3 to 0.3 with gaussian(mean = 0.0, sigma = 0.12)
+    stream_pop()
+    cs = fire
+    if (kind == 3) { cs = plasma }
+    if (tint.a != 0) { cs = rampFrom(tint) }
+
+    // ---- this frame's light ------------------------------------------------
+    heat = 1.0 - smoothstep(0.05, 0.7, t / dur)
+    flash = exp(-t / 0.07)
+    lp = 1.0 + 6.0 * flash + 1.9 * heat
+    if (kind == 2) { lp = 0.7 + 4.0 * flash + 0.8 * heat }
+    if (kind == 3) { lp = 1.4 + 7.0 * flash + 1.9 * heat }
+    // The light dies with the last glowing crack.
+    lp = lp * (1.0 - smoothstep(0.62, 0.86, t / dur))
+    ls = 7.0 + 5.0 * smoothstep(0.0, 0.5, t / dur)
+    lb = 1.5
+    if (power > 0.0) { lp = power }
+    if (sigma > 0.0) { ls = sigma }
+    if (blur > 0.0) { lb = blur }
+    lp = clamp(lp, 0.0, 16.0)
+    ls = clamp(ls, 0.0, sigmaMax)
+    lb = clamp(lb, 0.0, 4.0)
+    shown = f
+    if (f > n) {
+      shown = 0
+      lp = 0.0
+    }
+    anim = {float(n), float(n) / dur, 0.0, float(shown)}
+    glow = {lp, ls, lb}
+
+    // ---- the passes --------------------------------------------------------
+    if (f <= n) {
+      if (renderPass == 1) {
+        layer mask1(alpha = surface.source_over) { scene(start, t, dur, cs, kind, scale, lean, 1, 1.0) }
+        surface.paint(mask1, blend = surface.source_over)
+      } else if (renderPass == 2) {
+        if (lp > 0.0) {
+          k = max(1, int(ceil(lp)))
+          layer mask2(alpha = surface.source_over) { scene(start, t, dur, cs, kind, scale, lean, 1, lp / float(k)) }
+          pool = mask2.blur(ls)
+          bloom = mask2.blur(lb)
+          for i in 0..k { surface.paint(pool, blend = surface.source_over) }
+          for i in 0..k { surface.paint(bloom, blend = surface.source_over) }
+        }
+      } else {
+        layer sprite(alpha = surface.source_over) { scene(start, t, dur, cs, kind, scale, lean, 0, 1.0) }
+        surface.paint(sprite, blend = surface.source_over)
+      }
+    }
+  }
+
+  // Everything at time t, back to front. pass 0 paints colour; pass 1 paints
+  // only what emits light, in its light colour, alpha scaled by amp.
+  scene(start: i32, t: f32, dur: f32, cs: list<color>, kind: i32, scale: f32, lean: f32, pass: i32, amp: f32) {
+    heart = {cx, floorY - 9.0 * scale}
+    scorch(start, t, dur, cs, scale, pass, amp)
+    floorRing(t, cs, kind, scale, pass, amp, 0)
+    if (kind != 3 && pass == 0) {
+      smoke(start, t, dur, cs, kind, scale, lean)
+      floorDust(start, t, dur, cs, kind, scale)
+    }
+    fireball(start, t, cs, kind, scale, heart, pass, amp)
+    airRing(t, cs, kind, scale, heart, pass, amp)
+    flare(t, cs, scale, heart, pass, amp)
+    floorRing(t, cs, kind, scale, pass, amp, 1)
+    rocks(start, t, dur, cs, kind, scale, heart, pass, amp)
+    sparks(start, t, cs, kind, scale, heart, pass, amp)
+    embers(start, t, dur, cs, kind, scale, heart, pass, amp)
+    if (pass == 1) { pool(t, dur, cs, kind, scale, heart, amp) }
+  }
+
+  // The floor under the blast: soot two or three rows deep, with cracks that
+  // glow and cool. It thins away as the smoke clears.
+  scorch(start: i32, t: f32, dur: f32, cs: list<color>, scale: f32, pass: i32, amp: f32) {
+    rx = 23.0 * scale * easeOut(t / 0.12, 3.0)
+    gone = 1.0 - smoothstep(0.72, 0.97, t / dur)
+    if (rx >= 2.0 && gone > 0.0) {
+      if (pass == 0) {
+        oval(cx, floorY + 1.0, rx, 2.6, ink(#15101a, gone))
+        oval(cx, floorY + 1.0, rx * 0.62, 1.8, ink(#22171f, gone))
+      }
+      cool = clamp(t / (dur * 0.8), 0.0, 1.0)
+      for i in 0..7 {
+        stream_push(hash((start ^ scorchKey) + i * 0x9e3779b1))
+        u = -1.0 to 1.0 with gaussian(mean = 0.0, sigma = 0.45)
+        len = 1 to 4
+        row = 0 to 1
+        stream_pop()
+        h = (1.0 - cool) * (1.0 - abs(u) * 0.6)
+        if (h > 0.04) {
+          x = floor(cx + u * rx * 0.8)
+          c = tone(cs, 0.3 + h * 0.65)
+          if (pass == 0) { rect(x, floorY + float(row), float(len), 1.0, ink(c, gone)) }
+          else { rect(x, floorY + float(row), float(len), 1.0, ink(c, h * amp)) }
+        }
+      }
+    }
+  }
+
+  // A flat ring on the floor racing outwards; near = 0 draws the far half
+  // (behind the fireball), 1 the near half.
+  floorRing(t: f32, cs: list<color>, kind: i32, scale: f32, pass: i32, amp: f32, near: i32) {
+    u = t / 0.36
+    if (u < 1.0) {
+      reach = 58.0
+      if (kind == 3) { reach = 64.0 }
+      r = 8.0 + reach * scale * easeOut(u, 3.0)
+      thick = max(1, int(3.0 * (1.0 - u) + 0.5))
+      a = 1.0 - smoothstep(0.35, 1.0, u)
+      c = tone(cs, 0.97 - u * 0.5)
+      if (kind == 2) { c = color.mix(tone(cs, 0.9 - u * 0.4), dust[4], 0.6) }
+      a0 = 3.14159
+      if (near == 1) { a0 = 0.0 }
+      for s in 0..24 {
+        q0 = a0 + 3.14159 * float(s) / 24.0
+        q1 = a0 + 3.14159 * float(s + 1) / 24.0
+        p0 = {cx + cos(q0) * r, floorY + 1.0 + sin(q0) * r * 0.12}
+        p1 = {cx + cos(q1) * r, floorY + 1.0 + sin(q1) * r * 0.12}
+        if (pass == 0) { line(p0, p1, thick, ink(c, a)) }
+        else if (kind != 2) { line(p0, p1, thick, ink(c, a * 0.6 * amp)) }
+      }
+    }
+  }
+
+  // The air's shock: broken dashes of a ring racing out above the floor,
+  // quick and fading; plasma sends a second one after it.
+  airRing(t: f32, cs: list<color>, kind: i32, scale: f32, heart: vec2, pass: i32, amp: f32) {
+    rings = 1
+    if (kind == 3) { rings = 2 }
+    for j in 0..rings {
+      u = (t - 0.03 - float(j) * 0.08) / 0.22
+      if (u > 0.0 && u < 1.0) {
+        r = 12.0 + 40.0 * scale * easeOut(u, 2.6)
+        thick = 1
+        if (u < 0.3 && kind == 3) { thick = 2 }
+        c = ink(tone(cs, 0.98 - u * 0.3), 1.0 - u)
+        if (pass == 1) { c = ink(tone(cs, 0.98 - u * 0.3), (1.0 - u) * 0.7 * amp) }
+        if (kind != 2) {
+          // 40 chords, every third left out, only where the ring is above the floor.
+          for s in 0..40 {
+            q0 = 6.28318 * float(s) / 40.0
+            q1 = 6.28318 * float(s + 1) / 40.0
+            a0 = heart + {cos(q0), sin(q0)} * r
+            a1 = heart + {cos(q1), sin(q1)} * r
+            if (s % 3 != 2 && a0.y < floorY - 1.0 && a1.y < floorY - 1.0) { line(a0, a1, thick, c) }
+          }
+        }
+      }
+    }
+  }
+
+  // The hero frame: a white-hot disc with a yellow rim and a star of rays
+  // that start at its edge and taper out, gone in under 0.1 s.
+  flare(t: f32, cs: list<color>, scale: f32, heart: vec2, pass: i32, amp: f32) {
+    u = t / 0.1
+    if (u < 1.0) {
+      k = 1.0 - u
+      r = 10.0 * scale * (0.75 + 0.45 * u)
+      a = 1.0
+      if (pass == 1) { a = amp }
+      oval(heart, r + 2.0, r + 1.6, ink(tone(cs, 0.7), k * a))
+      oval(heart, r + 1.0, r + 0.6, ink(tone(cs, 0.92), a))
+      oval(heart, r * 0.7, r * 0.66, ink(#ffffff, a))
+      for q in 0..8 {
+        ang = 0.7854 * float(q)
+        dir = {cos(ang), sin(ang)}
+        len = (14.0 + 22.0 * k) * scale
+        if (q % 2 == 1) { len = len * 0.45 }
+        if (q == 2) { len = len * 0.3 }
+        base = heart + dir * (r + 1.0)
+        mid = heart + dir * (r + 1.0 + len * 0.45)
+        tip = heart + dir * (r + 1.0 + len)
+        if (q % 2 == 0) { line(base, mid, 2, ink(#ffffff, k * a)) }
+        else { line(base, mid, 1, ink(#ffffff, k * a)) }
+        line(mid, tip, 1, ink(tone(cs, 0.86), k * a))
+      }
+    }
+  }
+
+  // The fireball: puffs flung up and out, swelling fast and cooling from
+  // white to soot. Each coat is painted for every puff before the next, so
+  // the dark rim shows only round the outside and the hot hearts merge.
+  fireball(start: i32, t: f32, cs: list<color>, kind: i32, scale: f32, heart: vec2, pass: i32, amp: f32) {
+    count = 13
+    size = scale
+    if (kind == 2) {
+      count = 7
+      size = scale * 0.72
+    }
+    if (kind == 3) { count = 10 }
+    for coat in 0..5 {
+      for i in 0..count {
+        stream_push(hash((start ^ fireKey) + i * 0x9e3779b1))
+        ang = -3.3 to 0.16
+        reach = 0.1 to 1.0 with gaussian(mean = 0.55, sigma = 0.24)
+        r0 = 4.5 to 10.0 with gaussian(mean = 7.0, sigma = 1.3)
+        life = 0.3 to 0.62
+        rise = 6.0 to 20.0
+        delay = 0.0 to 0.07
+        squash = 0.8 to 1.0
+        stream_pop()
+        u = (t - delay) / life
+        if (u > 0.0 && u < 1.0) {
+          out = easeOut(u * 2.2, 2.0)
+          p = {heart.x + cos(ang) * reach * 19.0 * size * out,
+               heart.y + sin(ang) * reach * 13.0 * size * out - rise * u * u * size}
+          r = r0 * size * (0.5 + 0.62 * easeOut(u * 4.0, 2.0)) * (1.0 - 0.6 * smoothstep(0.45, 1.0, u))
+          h = 1.0 - u
+          ry = r * squash
+          if (pass == 0) {
+            if (coat == 0) { oval(p, r + 1.0, ry + 1.0, tone(cs, 0.06 + h * 0.42)) }
+            else if (coat == 1) { oval(p, r, ry, tone(cs, 0.2 + h * 0.6)) }
+            else if (coat == 2) { oval(p - {r * 0.12, r * 0.16}, r * 0.66, ry * 0.62, tone(cs, 0.36 + h * 0.62)) }
+            else if (coat == 3 && h > 0.4) { oval(p - {r * 0.16, r * 0.22}, r * 0.34, ry * 0.3, tone(cs, 0.6 + h * 0.5)) }
+            else if (coat == 4 && h < 0.42 && kind != 3) {
+              // Cooling: soot creeps over the puff from the top.
+              oval(p - {r * 0.05, r * 0.3}, r * 0.95, ry * 0.72, ink(soot[1], (0.42 - h) / 0.42))
+            }
+          } else if (coat == 1) {
+            oval(p, r, ry, ink(tone(cs, 0.35 + h * 0.6), h * 0.8 * amp))
+          } else if (coat == 2) {
+            oval(p - {r * 0.12, r * 0.16}, r * 0.6, ry * 0.56, ink(tone(cs, 0.6 + h * 0.5), h * 0.8 * amp))
+          }
+        }
+      }
+    }
+  }
+
+  // Smoke: soft translucent billows rising from the fireball. Each billow is
+  // three lobes; undersides, bodies and lit caps (upper left) go in coats, so
+  // the column reads as one rolling mass. The fire lights it from below while
+  // it burns.
+  smoke(start: i32, t: f32, dur: f32, cs: list<color>, kind: i32, scale: f32, lean: f32) {
+    count = 13
+    sm = soot
+    if (kind == 2) {
+      count = 16
+      sm = dust
+    }
+    burn = 1.0 - smoothstep(0.1, 0.55, t)
+    for coat in 0..3 {
+      for i in 0..count {
+        stream_push(hash((start ^ smokeKey) + i * 0x9e3779b1))
+        dx = -11.0 to 11.0 with gaussian(mean = 0.0, sigma = 4.5)
+        t0 = 0.04 to 0.26
+        life = 0.6 to 0.72
+        rise = 30.0 to 70.0
+        r0 = 5.0 to 10.0 with gaussian(mean = 7.5, sigma = 1.3)
+        shade = 0 to 1
+        wob = 0.0 to 6.2832
+        lobeA = 0.0 to 6.2832
+        lobeB = 0.0 to 6.2832
+        stream_pop()
+        u = (t - t0 * dur) / (life * dur)
+        if (u > 0.0 && u < 1.0) {
+          e = easeOut(u, 2.2)
+          p = {cx + dx * scale * (0.6 + e * 1.2) + lean * rise * e + sin(wob + u * 5.0) * 1.5,
+               floorY - 11.0 * scale - rise * scale * e}
+          r = r0 * scale * (0.7 + 0.9 * e)
+          a = smoothstep(0.0, 0.12, u) * (1.0 - smoothstep(0.35, 1.0, u)) * 0.74
+          la = p + {cos(lobeA), sin(lobeA) * 0.7} * r * 0.55
+          lb = p + {cos(lobeB), sin(lobeB) * 0.7} * r * 0.5
+          if (coat == 0) {
+            oval(p.x + 1.0, p.y + 1.0, r, r * 0.86, ink(sm[shade], a))
+            oval(la.x + 1.0, la.y + 1.0, r * 0.62, r * 0.55, ink(sm[shade], a))
+            oval(lb.x + 1.0, lb.y + 1.0, r * 0.55, r * 0.5, ink(sm[shade], a))
+          } else if (coat == 1) {
+            oval(p.x - r * 0.16, p.y - r * 0.2, r * 0.74, r * 0.62, ink(sm[shade + 1], a))
+            oval(la.x - r * 0.1, la.y - r * 0.12, r * 0.44, r * 0.38, ink(sm[shade + 1], a))
+            if (burn > 0.0 && kind != 2) { oval(p.x, p.y + r * 0.45, r * 0.72, r * 0.36, ink(tone(cs, 0.42), a * burn * 0.8)) }
+          } else {
+            oval(p.x - r * 0.3, p.y - r * 0.36, r * 0.4, r * 0.3, ink(sm[shade + 2], a * 0.6))
+          }
+        }
+      }
+    }
+  }
+
+  // Dust rolling out along the floor from the foot of the blast, both ways.
+  floorDust(start: i32, t: f32, dur: f32, cs: list<color>, kind: i32, scale: f32) {
+    count = 8
+    if (kind == 2) { count = 12 }
+    for i in 0..count {
+      stream_push(hash((start ^ smokeKey ^ 0x3f1d) + i * 0x9e3779b1))
+      side = -1.0
+      if (chance(0.5)) { side = 1.0 }
+      far = 22.0 to 52.0
+      r0 = 2.5 to 5.0
+      life = 0.45 to 0.7
+      tone0 = 1 to 2
+      stream_pop()
+      u = t / (life * dur)
+      if (u > 0.0 && u < 1.0) {
+        e = easeOut(u, 3.0)
+        r = r0 * scale * (0.8 + 1.2 * e)
+        p = {cx + side * far * scale * e, floorY - r * 0.55}
+        a = smoothstep(0.0, 0.1, u) * (1.0 - smoothstep(0.3, 1.0, u)) * 0.7
+        oval(p.x + 1.0, p.y + 1.0, r, r * 0.6, ink(dust[tone0], a))
+        oval(p.x - r * 0.2, p.y - r * 0.2, r * 0.6, r * 0.4, ink(dust[tone0 + 2], a * 0.8))
+      }
+    }
+  }
+
+  // Rocks: chunks thrown up and out that fall, skip once or twice and settle,
+  // glowing at the edge while they are hot.
+  rocks(start: i32, t: f32, dur: f32, cs: list<color>, kind: i32, scale: f32, heart: vec2, pass: i32, amp: f32) {
+    count = 7
+    if (kind == 2) { count = 12 }
+    if (kind == 3) { count = 0 }
+    gone = 1.0 - smoothstep(0.78, 0.97, t / dur)
+    for i in 0..count {
+      stream_push(hash((start ^ rockKey) + i * 0x9e3779b1))
+      ang = -2.7 to -0.45
+      spd = 80.0 to 190.0 with gaussian(mean = 130.0, sigma = 30.0)
+      s = 1.2 to 2.8
+      spin = -14.0 to 14.0
+      a0 = 0.0 to 6.2832
+      jag = 0.6 to 1.0
+      stream_pop()
+      p = heart
+      v = {cos(ang) * spd * scale, sin(ang) * spd * scale}
+      steps = int(t * 60.0)
+      landed = 0.0
+      for k in 0..steps {
+        v = {v.x * 0.995, v.y + 7.5}
+        p = p + v / 60.0
+        if (p.y > floorY - s + 0.5) {
+          p = {p.x, floorY - s + 0.5}
+          v = {v.x * 0.5, 0.0 - v.y * 0.28}
+          if (landed == 0.0) { landed = float(k) / 60.0 }
+        }
+      }
+      q = a0 + spin * min(t, 0.55)
+      hot = 1.0 - smoothstep(0.0, 0.45, t)
+      if (pass == 0 && gone > 0.0 && t > 0.08) {
+        poly(ink(rock[1], gone), p.x + cos(q) * s, p.y + sin(q) * s,
+             p.x + cos(q + 1.7) * s * jag, p.y + sin(q + 1.7) * s * jag,
+             p.x + cos(q + 3.3) * s, p.y + sin(q + 3.3) * s,
+             p.x + cos(q + 4.8) * s * jag, p.y + sin(q + 4.8) * s * jag)
+        pixel(int(p.x - s * 0.4), int(p.y - s * 0.4), ink(rock[3], gone))
+        if (hot > 0.1) { pixel(int(p.x + s * 0.3), int(p.y + s * 0.3), ink(tone(cs, 0.55 + hot * 0.4), hot)) }
+      }
+      if (pass == 1 && hot > 0.1 && t > 0.08) { pixel(int(p.x + s * 0.3), int(p.y + s * 0.3), ink(tone(cs, 0.6 + hot * 0.4), hot * amp)) }
+    }
+  }
+
+  // Sparks: speed-stretched streaks, white at the head, that fall, skip off
+  // the floor and cool to red before they wink out.
+  sparks(start: i32, t: f32, cs: list<color>, kind: i32, scale: f32, heart: vec2, pass: i32, amp: f32) {
+    count = 40
+    if (kind == 2) { count = 16 }
+    if (kind == 3) { count = 58 }
+    for i in 0..count {
+      stream_push(hash((start ^ sparkKey) + i * 0x9e3779b1))
+      ang = -3.45 to 0.3
+      spd = 90.0 to 240.0 with gaussian(mean = 160.0, sigma = 40.0)
+      life = 0.22 to 0.7 with gaussian(mean = 0.42, sigma = 0.12)
+      delay = 0.0 to 0.05
+      stream_pop()
+      u = (t - delay) / life
+      if (u > 0.0 && u < 1.0) {
+        p = heart
+        v = {cos(ang) * spd * scale, sin(ang) * spd * scale}
+        steps = int((t - delay) * 60.0)
+        for k in 0..steps {
+          v = {v.x * 0.955, v.y * 0.955 + 6.0}
+          p = p + v / 60.0
+          if (p.y > floorY) {
+            p = {p.x, floorY}
+            v = {v.x * 0.65, 0.0 - v.y * 0.35}
+          }
+        }
+        tail = p - v * 0.028
+        head = tone(cs, 1.0 - u * 0.55)
+        body = tone(cs, 0.82 - u * 0.6)
+        if (pass == 0) {
+          line(tail, p, 1, body)
+          pixel(int(p.x), int(p.y), head)
+        } else {
+          line(tail, p, 1, ink(body, (1.0 - u) * amp))
+          pixel(int(p.x), int(p.y), ink(head, amp))
+        }
+      }
+    }
+  }
+
+  // Embers: single bright pixels riding the heat up out of the fireball,
+  // wavering and blinking as they cool.
+  embers(start: i32, t: f32, dur: f32, cs: list<color>, kind: i32, scale: f32, heart: vec2, pass: i32, amp: f32) {
+    count = 16
+    if (kind == 2) { count = 6 }
+    for i in 0..count {
+      stream_push(hash((start ^ emberKey) + i * 0x9e3779b1))
+      t0 = 0.06 to 0.3
+      life = 0.45 to 0.68
+      dx = -14.0 to 14.0 with gaussian(mean = 0.0, sigma = 6.0)
+      rise = 20.0 to 46.0
+      wob = 0.0 to 6.2832
+      stream_pop()
+      u = (t - t0 * dur) / (life * dur)
+      if (u > 0.0 && u < 1.0) {
+        e = easeOut(u, 1.6)
+        p = {heart.x + dx * scale * (0.4 + e) + sin(wob + u * 9.0) * 2.0, heart.y - rise * scale * e}
+        blink = 0.5 + 0.5 * sin(wob * 3.0 + u * 31.0)
+        if (blink > 0.2) {
+          c = tone(cs, 0.85 - u * 0.5)
+          if (pass == 0) { pixel(int(p.x), int(p.y), c) }
+          else { pixel(int(p.x), int(p.y), ink(c, (1.0 - u) * amp)) }
+        }
+      }
+    }
+  }
+
+  // Light only: the glow the fire throws on the air round it and on the
+  // floor, which the light pass blurs into a pool.
+  pool(t: f32, dur: f32, cs: list<color>, kind: i32, scale: f32, heart: vec2, amp: f32) {
+    heat = 1.0 - smoothstep(0.0, 0.5, t)
+    if (heat > 0.0 && kind != 2) {
+      c = tone(cs, 0.7)
+      // (light only: nothing in the sprite covers it)
+      oval(heart, 15.0 * scale, 13.0 * scale, ink(c, heat * 0.5 * amp))
+      oval(cx, floorY + 1.5, 34.0 * scale, 3.5, ink(c, heat * 0.45 * amp))
+    }
+  }
+
+  // ---- toolkit ---------------------------------------------------------------
+  // A hard ramp step: 0 is the darkest tone, 1 the hottest.
+  tone(cs: list<color>, t: f32) -> color {
+    n = list.len(cs)
+    return cs[clamp(int(t * float(n)), 0, n - 1)]
+  }
+  // The colour with its alpha scaled by a (clamped to 0..1).
+  ink(c: color, a: f32) -> color {
+    return color.set.a(c, int(clamp(a, 0.0, 1.0) * float(c.a)))
+  }
+  // Fast in, slow out: 1 - (1 - u)^k on u clamped to 0..1.
+  easeOut(u: f32, k: f32) -> f32 {
+    return 1.0 - pow(1.0 - clamp(u, 0.0, 1.0), k)
+  }
+  // Eight steps from a dark shade of the colour, through it, to white.
+  rampFrom(c: color) -> list<color> {
+    base = color.set.a(c, 255)
+    return [color.mix(#08060c, base, 0.2), color.mix(#08060c, base, 0.4), color.mix(#08060c, base, 0.62),
+            color.mix(#08060c, base, 0.84), base, color.mix(base, #fff8e8, 0.35), color.mix(base, #fff8e8, 0.68), #ffffff]
+  }
+}

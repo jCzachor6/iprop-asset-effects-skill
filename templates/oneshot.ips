@@ -1,0 +1,207 @@
+// __TITLE__: one line of art direction - what it is, how it moves, its
+// colours, its timing.
+//
+// Category: __CATEGORY__. One-shot. Canvas __W__x__H__, origin __OX__,__OY__ (__ORIGIN_NOTE__).
+// Side view at the scale of a 24x38 character, light from the upper left.
+// Frames: the seed rolls __FLO__-__FHI__ frames over __DLO__-__DHI__ s; `frames` retimes it.
+// Light: what the mask holds and how power, sigma and blur move over time.
+//   tint   transparent keeps the seed's palette; a colour recolours the effect
+//
+// Variety: __VARIETY__
+asset __ASSET__ {
+  size __W__x__H__
+  origin __OX__,__OY__
+
+  // ---- the effect contract -------------------------------------------------
+  // 0 draws the hero frame; 1..frames play the effect; past its end a
+  // one-shot draws nothing.
+  input u32 frame = 0
+  // 0 rolls the frame count from the seed; 2..64 retimes the effect.
+  input u32 frames = 0
+  // 0 colour sprite, 1 light mask, 2 light under the pixels (the mask with
+  // power, sigma and blur applied, ready to add under the sprite).
+  input u32 renderPass = 0
+  // 0 keeps this frame's own value; above 0 forces it.
+  input f32 power = 0.0
+  input f32 sigma = 0.0
+  input f32 blur = 0.0
+  // Transparent rolls the palette from the seed; a colour recolours it.
+  input color tint = #00000000
+
+  // {frames, fps, loop (1) or one-shot (0), the frame drawn (0 when done)}
+  output rect anim
+  // {x: power, y: sigma, radius: blur} of this frame's light
+  output circle glow
+
+  palette hot = [#2b0f14, #5c1a16, #a3271b, #e0471d, #ff7a24, #ffb43a, #ffe27a, #fffbe6]
+  palette cold = [#0b1030, #182a6a, #2156b0, #2f8ae0, #4fc4ff, #95e6ff, #d8f8ff, #ffffff]
+
+  const f32 heroPhase = 0.15     // where frame 0 (the thumbnail) samples the effect
+  const f32 sigmaMax = 12.0      // keeps renderPass 2 inside the fuel budget
+  const f32 cx = __OX__.0
+  const f32 floorY = __OY__.0
+
+  // Stream keys, one per purpose; per-particle streams add i * 0x9e3779b1.
+  const i32 timeKey = 0x68e31da4
+  const i32 lookKey = 0x2f6b9a13
+  const i32 sparkKey = 0x2545f491
+
+  draw {
+    start = seed
+    // ---- timing: the seed's own frame count, or the one asked for ----------
+    stream_push(hash(start ^ timeKey))
+    rolled = __FLO__ to __FHI__
+    dur = __DLO__ to __DHI__
+    stream_pop()
+    n = rolled
+    if (frames >= 2) { n = min(frames, 64) }
+    f = frame
+    if (f == 0) { f = clamp(int(heroPhase * float(n)) + 1, 1, n) }
+    t = (float(f) - 0.5) / float(n) * dur
+
+    // ---- the look: roll everything, whatever the inputs --------------------
+    stream_push(hash(start ^ lookKey))
+    useCold = chance(0.25)
+    scale = 0.9 to 1.1 with gaussian(mean = 1.0, sigma = 0.05)
+    stream_pop()
+    cs = hot
+    if (useCold == 1) { cs = cold }
+    if (tint.a != 0) { cs = rampFrom(tint) }
+
+    // ---- this frame's light ------------------------------------------------
+    // A flash on the hit, then a steady glow that fades out before the
+    // pixels do (light with an empty mask is wasted).
+    lp = (1.0 + 4.0 * exp(-t / 0.08)) * (1.0 - smoothstep(0.55 * dur, 0.85 * dur, t))
+    ls = 8.0
+    lb = 1.5
+    if (power > 0.0) { lp = power }
+    if (sigma > 0.0) { ls = sigma }
+    if (blur > 0.0) { lb = blur }
+    lp = clamp(lp, 0.0, 16.0)
+    ls = clamp(ls, 0.0, sigmaMax)
+    lb = clamp(lb, 0.0, 4.0)
+    shown = f
+    if (f > n) {
+      shown = 0
+      lp = 0.0
+    }
+    anim = {float(n), float(n) / dur, 0.0, float(shown)}
+    glow = {lp, ls, lb}
+
+    // ---- the passes (keep as is) -------------------------------------------
+    if (f <= n) {
+      if (renderPass == 1) {
+        layer mask1(alpha = surface.source_over) { scene(start, t, dur, cs, scale, 1, 1.0) }
+        surface.paint(mask1, blend = surface.source_over)
+      } else if (renderPass == 2) {
+        if (lp > 0.0) {
+          k = max(1, int(ceil(lp)))
+          layer mask2(alpha = surface.source_over) { scene(start, t, dur, cs, scale, 1, lp / float(k)) }
+          pool = mask2.blur(ls)
+          bloom = mask2.blur(lb)
+          for i in 0..k { surface.paint(pool, blend = surface.source_over) }
+          for i in 0..k { surface.paint(bloom, blend = surface.source_over) }
+        }
+      } else {
+        layer sprite(alpha = surface.source_over) { scene(start, t, dur, cs, scale, 0, 1.0) }
+        surface.paint(sprite, blend = surface.source_over)
+      }
+    }
+  }
+
+  // Everything at time t, back to front. pass 0 paints colour; pass 1 paints
+  // only what emits light, in its light colour, alpha scaled by amp.
+  scene(start: i32, t: f32, dur: f32, cs: list<color>, scale: f32, pass: i32, amp: f32) {
+    heart = {cx, floorY - 12.0 * scale}
+    // Placeholder: a burst of sparks and a glint. Replace with the effect.
+    for i in 0..24 {
+      stream_push(hash((start ^ sparkKey) + i * 0x9e3779b1))
+      ang = 0.0 to 6.2832
+      spd = 60.0 to 160.0
+      life = 0.3 to 0.7
+      stream_pop()
+      u = t / life
+      if (u < 1.0) {
+        p = heart + {cos(ang), sin(ang)} * spd * (1.0 - exp(-3.0 * t)) / 3.0
+        tail = heart + {cos(ang), sin(ang)} * spd * (1.0 - exp(-3.0 * max(0.0, t - 0.04))) / 3.0
+        streak(tail, p, tone(cs, 1.0 - u * 0.6), tone(cs, 0.8 - u * 0.6), 1.0 - u, pass, amp)
+      }
+    }
+    // The glint shrinks and fades out exactly at the end, so no frame is empty
+    // before the last one.
+    glint(heart, 1.0 + 5.0 * (1.0 - t / dur), #ffffff, tone(cs, 0.85), 1.0 - t / dur, pass, amp)
+  }
+
+  // ---- toolkit (copy what you need; unused helpers cost nothing) -------------
+  // A hard ramp step: 0 is the darkest tone, 1 the hottest.
+  tone(cs: list<color>, t: f32) -> color {
+    n = list.len(cs)
+    return cs[clamp(int(t * float(n)), 0, n - 1)]
+  }
+  // The colour with its alpha scaled by a (clamped to 0..1).
+  ink(c: color, a: f32) -> color {
+    return color.set.a(c, int(clamp(a, 0.0, 1.0) * float(c.a)))
+  }
+  // Fast in, slow out: 1 - (1 - u)^k on u clamped to 0..1.
+  easeOut(u: f32, k: f32) -> f32 {
+    return 1.0 - pow(1.0 - clamp(u, 0.0, 1.0), k)
+  }
+  // Slow in, fast out: u^k on u clamped to 0..1.
+  easeIn(u: f32, k: f32) -> f32 {
+    return pow(clamp(u, 0.0, 1.0), k)
+  }
+  // 0 at both ends, 1 in the middle: a swell and fade over u in 0..1.
+  bump(u: f32) -> f32 {
+    return sin(3.14159 * clamp(u, 0.0, 1.0))
+  }
+  // Eight steps from a dark shade of the colour, through it, to white.
+  rampFrom(c: color) -> list<color> {
+    base = color.set.a(c, 255)
+    return [color.mix(#08060c, base, 0.2), color.mix(#08060c, base, 0.4), color.mix(#08060c, base, 0.62),
+            color.mix(#08060c, base, 0.84), base, color.mix(base, #fff8e8, 0.35), color.mix(base, #fff8e8, 0.68), #ffffff]
+  }
+  // A speed-stretched streak: the body from tail to head, a hot head pixel.
+  streak(tail: vec2, head: vec2, hot: color, body: color, a: f32, pass: i32, amp: f32) {
+    if (pass == 0) {
+      line(tail, head, 1, ink(body, a))
+      pixel(int(head.x), int(head.y), ink(hot, max(a, 0.6)))
+    } else {
+      line(tail, head, 1, ink(body, a * amp))
+      pixel(int(head.x), int(head.y), ink(hot, amp))
+    }
+  }
+  // A star glint: a white centre and four tapering arms of length arm.
+  glint(p: vec2, arm: f32, core: color, tip: color, a: f32, pass: i32, amp: f32) {
+    if (arm >= 1.0 && a > 0.0) {
+      k = a
+      if (pass == 1) { k = a * amp }
+      x = floor(p.x)
+      y = floor(p.y)
+      rect(x - arm, y, arm * 2.0 + 1.0, 1.0, ink(tip, k))
+      rect(x, y - arm, 1.0, arm * 2.0 + 1.0, ink(tip, k))
+      inner = floor(arm * 0.5)
+      rect(x - inner, y, inner * 2.0 + 1.0, 1.0, ink(core, k))
+      rect(x, y - inner, 1.0, inner * 2.0 + 1.0, ink(core, k))
+    }
+  }
+  // A flat ring lying on the floor at y, radius r (depth 0.16 r): near = 0
+  // draws the far half (paint it behind), 1 the near half (in front).
+  floorRing(c: vec2, r: f32, thick: i32, col: color, near: i32) {
+    a0 = 3.14159
+    if (near == 1) { a0 = 0.0 }
+    for s in 0..24 {
+      q0 = a0 + 3.14159 * float(s) / 24.0
+      q1 = a0 + 3.14159 * float(s + 1) / 24.0
+      line(c + {cos(q0) * r, sin(q0) * r * 0.16}, c + {cos(q1) * r, sin(q1) * r * 0.16}, thick, col)
+    }
+  }
+  // A ring in the air: chords round a circle of radius r.
+  ring(c: vec2, r: f32, thick: i32, col: color) {
+    segs = clamp(int(r * 1.2), 12, 64)
+    for s in 0..segs {
+      q0 = 6.28318 * float(s) / float(segs)
+      q1 = 6.28318 * float(s + 1) / float(segs)
+      line(c + {cos(q0), sin(q0)} * r, c + {cos(q1), sin(q1)} * r, thick, col)
+    }
+  }
+}

@@ -1,0 +1,235 @@
+// Torch: a wall torch on a stick, a swaying flame of stacked tongues that
+// flickers, and sparks that rise off its tip and fade.
+//
+// Category: fire. Loop. Canvas 64x96, origin 32,90 (the floor under the effect).
+// Side view at the scale of a 24x38 character, light from the upper left.
+// Frames: the seed rolls 12, 18 or 24 frames at 15.0-18.0 fps; `frames`
+// retimes it.
+// Every moving thing is periodic in the phase, so frame frames+1 is frame 1.
+// Light: the mask holds the flame and the sparks; power flickers round 2.2,
+// sigma 6, blur 1.5.
+//   tint   transparent rolls the fire (75% orange, 25% blue); a colour
+//          recolours the flame
+//
+// Variety: medium
+asset Torch {
+  size 64x96
+  origin 32,90
+
+  // ---- the effect contract -------------------------------------------------
+  // 0 draws the hero frame; 1..frames play the cycle; a loop wraps, so
+  // frames+1 draws frame 1 again.
+  input u32 frame = 0
+  // 0 rolls the frame count from the seed; 2..64 retimes the effect.
+  input u32 frames = 0
+  // 0 colour sprite, 1 light mask, 2 light under the pixels (the mask with
+  // power, sigma and blur applied, ready to add under the sprite).
+  input u32 renderPass = 0
+  // 0 keeps this frame's own value; above 0 forces it.
+  input f32 power = 0.0
+  input f32 sigma = 0.0
+  input f32 blur = 0.0
+  // Transparent rolls the palette from the seed; a colour recolours it.
+  input color tint = #00000000
+
+  // {frames, fps, loop (1) or one-shot (0), the frame drawn (0 when done)}
+  output rect anim
+  // {x: power, y: sigma, radius: blur} of this frame's light
+  output circle glow
+
+  palette hot = [#2b0f14, #5c1a16, #a3271b, #e0471d, #ff7a24, #ffb43a, #ffe27a, #fffbe6]
+  palette cold = [#0b1030, #182a6a, #2156b0, #2f8ae0, #4fc4ff, #95e6ff, #d8f8ff, #ffffff]
+
+  const f32 heroPhase = 0.0      // where frame 0 (the thumbnail) samples the cycle
+  const f32 sigmaMax = 12.0      // keeps renderPass 2 inside the fuel budget
+  const f32 cx = 32.0
+  const f32 floorY = 90.0
+
+  // Stream keys, one per purpose; per-particle streams add i * 0x9e3779b1.
+  const i32 timeKey = 0x68e31da4
+  const i32 lookKey = 0x2f6b9a13
+  const i32 sparkKey = 0x2545f491
+
+  draw {
+    start = seed
+    // ---- timing: the seed's own frame count, or the one asked for ----------
+    stream_push(hash(start ^ timeKey))
+    rolled = pick(12, 18, 24)
+    rate = 15.0 to 18.0
+    stream_pop()
+    // The cycle's length comes from the rolled count; forcing `frames` keeps
+    // the motion and changes the frame rate.
+    dur = float(rolled) / rate
+    n = rolled
+    if (frames >= 2) { n = min(frames, 64) }
+    f = frame
+    if (f == 0) { f = clamp(int(heroPhase * float(n)) + 1, 1, n) }
+    f = (f - 1) % n + 1
+    // The phase runs 0..1 over the cycle and never reaches 1: frame 1 is 0.
+    phase = (float(f) - 1.0) / float(n)
+
+    // ---- the look: roll everything, whatever the inputs --------------------
+    stream_push(hash(start ^ lookKey))
+    useCold = chance(0.25)
+    scale = 0.9 to 1.1 with gaussian(mean = 1.0, sigma = 0.05)
+    stream_pop()
+    cs = hot
+    if (useCold == 1) { cs = cold }
+    if (tint.a != 0) { cs = rampFrom(tint) }
+
+    // ---- this frame's light ------------------------------------------------
+    // The flicker: a new roll every frame.
+    stream_push(hash(start ^ (f * 7919)))
+    flick = 0.85 to 1.15
+    stream_pop()
+    lp = 2.2 * flick
+    ls = 6.0
+    lb = 1.5
+    if (power > 0.0) { lp = power }
+    if (sigma > 0.0) { ls = sigma }
+    if (blur > 0.0) { lb = blur }
+    lp = clamp(lp, 0.0, 16.0)
+    ls = clamp(ls, 0.0, sigmaMax)
+    lb = clamp(lb, 0.0, 4.0)
+    anim = {float(n), float(n) / dur, 1.0, float(f)}
+    glow = {lp, ls, lb}
+
+    // ---- the passes (keep as is) -------------------------------------------
+    if (n > 0) {
+      if (renderPass == 1) {
+        layer mask1(alpha = surface.source_over) { scene(start, phase, cs, scale, 1, 1.0) }
+        surface.paint(mask1, blend = surface.source_over)
+      } else if (renderPass == 2) {
+        if (lp > 0.0) {
+          k = max(1, int(ceil(lp)))
+          layer mask2(alpha = surface.source_over) { scene(start, phase, cs, scale, 1, lp / float(k)) }
+          pool = mask2.blur(ls)
+          bloom = mask2.blur(lb)
+          for i in 0..k { surface.paint(pool, blend = surface.source_over) }
+          for i in 0..k { surface.paint(bloom, blend = surface.source_over) }
+        }
+      } else {
+        layer sprite(alpha = surface.source_over) { scene(start, phase, cs, scale, 0, 1.0) }
+        surface.paint(sprite, blend = surface.source_over)
+      }
+    }
+  }
+
+  // Everything at this phase of the cycle, back to front. pass 0 paints
+  // colour; pass 1 paints only what emits light, alpha scaled by amp.
+  scene(start: i32, phase: f32, cs: list<color>, scale: f32, pass: i32, amp: f32) {
+    k = 1.0
+    if (pass == 1) { k = amp }
+    // The stick, lit from the upper left, and its iron cup.
+    if (pass == 0) {
+      rect(cx - 2.0, floorY - 34.0, 4.0, 34.0, #5a3a22)
+      rect(cx - 2.0, floorY - 34.0, 1.0, 34.0, #8a5e38)
+      rect(cx + 1.0, floorY - 34.0, 1.0, 34.0, #3a2414)
+      rect(cx - 4.0, floorY - 37.0, 8.0, 4.0, #2a2226)
+      rect(cx - 4.0, floorY - 37.0, 8.0, 1.0, #5a5056)
+    }
+    // The flame: stacked tongues that sway and breathe.
+    sway = sin(6.28318 * phase * 1.25) * 2.5
+    breath = cos(6.28318 * phase * 0.5)
+    for i in 0..5 {
+      u = float(i) / 4.0
+      px = cx + sway * u
+      py = floorY - 39.0 - (16.0 + 4.0 * breath) * scale * u
+      rx = (6.0 - 4.0 * u) * scale
+      oval(px, py, rx, rx * 1.4, ink(tone(cs, 0.35 + 0.6 * u), k))
+    }
+    // Sparks rising off the tip.
+    for i in 0..8 {
+      stream_push(hash((start ^ sparkKey) + i * 0x9e3779b1))
+      offset = 0.0 to 1.0
+      drift = -5.0 to 5.0
+      stream_pop()
+      age = fract(phase * 2.3 + offset)
+      p = {cx + sway + drift * age, floorY - 58.0 - 26.0 * age}
+      pixel(int(p.x), int(p.y), ink(tone(cs, 0.9 - 0.4 * age), (1.0 - age) * k))
+    }
+  }
+
+  // ---- toolkit (copy what you need; unused helpers cost nothing) -------------
+  // A hard ramp step: 0 is the darkest tone, 1 the hottest.
+  tone(cs: list<color>, t: f32) -> color {
+    n = list.len(cs)
+    return cs[clamp(int(t * float(n)), 0, n - 1)]
+  }
+  // The colour with its alpha scaled by a (clamped to 0..1).
+  ink(c: color, a: f32) -> color {
+    return color.set.a(c, int(clamp(a, 0.0, 1.0) * float(c.a)))
+  }
+  // Fast in, slow out: 1 - (1 - u)^k on u clamped to 0..1.
+  easeOut(u: f32, k: f32) -> f32 {
+    return 1.0 - pow(1.0 - clamp(u, 0.0, 1.0), k)
+  }
+  // The fractional part: cycle(phase * n + offset) repeats n times a loop.
+  fract(x: f32) -> f32 {
+    return x - floor(x)
+  }
+  // Smooth noise that loops with the phase: the noise field sampled round a
+  // circle, so phase 0 and 1 meet. lane separates independent signals.
+  loopNoise(phase: f32, lane: f32, key: i32) -> f32 {
+    q = 6.28318 * phase
+    return noise(cos(q) * 1.6 + lane * 5.3, sin(q) * 1.6 + lane * 2.9, key)
+  }
+  // Slow in, fast out: u^k on u clamped to 0..1.
+  easeIn(u: f32, k: f32) -> f32 {
+    return pow(clamp(u, 0.0, 1.0), k)
+  }
+  // 0 at both ends, 1 in the middle: a swell and fade over u in 0..1.
+  bump(u: f32) -> f32 {
+    return sin(3.14159 * clamp(u, 0.0, 1.0))
+  }
+  // Eight steps from a dark shade of the colour, through it, to white.
+  rampFrom(c: color) -> list<color> {
+    base = color.set.a(c, 255)
+    return [color.mix(#08060c, base, 0.2), color.mix(#08060c, base, 0.4), color.mix(#08060c, base, 0.62),
+            color.mix(#08060c, base, 0.84), base, color.mix(base, #fff8e8, 0.35), color.mix(base, #fff8e8, 0.68), #ffffff]
+  }
+  // A speed-stretched streak: the body from tail to head, a hot head pixel.
+  streak(tail: vec2, head: vec2, hot: color, body: color, a: f32, pass: i32, amp: f32) {
+    if (pass == 0) {
+      line(tail, head, 1, ink(body, a))
+      pixel(int(head.x), int(head.y), ink(hot, max(a, 0.6)))
+    } else {
+      line(tail, head, 1, ink(body, a * amp))
+      pixel(int(head.x), int(head.y), ink(hot, amp))
+    }
+  }
+  // A star glint: a white centre and four tapering arms of length arm.
+  glint(p: vec2, arm: f32, core: color, tip: color, a: f32, pass: i32, amp: f32) {
+    if (arm >= 1.0 && a > 0.0) {
+      k = a
+      if (pass == 1) { k = a * amp }
+      x = floor(p.x)
+      y = floor(p.y)
+      rect(x - arm, y, arm * 2.0 + 1.0, 1.0, ink(tip, k))
+      rect(x, y - arm, 1.0, arm * 2.0 + 1.0, ink(tip, k))
+      inner = floor(arm * 0.5)
+      rect(x - inner, y, inner * 2.0 + 1.0, 1.0, ink(core, k))
+      rect(x, y - inner, 1.0, inner * 2.0 + 1.0, ink(core, k))
+    }
+  }
+  // A flat ring lying on the floor at y, radius r (depth 0.16 r): near = 0
+  // draws the far half (paint it behind), 1 the near half (in front).
+  floorRing(c: vec2, r: f32, thick: i32, col: color, near: i32) {
+    a0 = 3.14159
+    if (near == 1) { a0 = 0.0 }
+    for s in 0..24 {
+      q0 = a0 + 3.14159 * float(s) / 24.0
+      q1 = a0 + 3.14159 * float(s + 1) / 24.0
+      line(c + {cos(q0) * r, sin(q0) * r * 0.16}, c + {cos(q1) * r, sin(q1) * r * 0.16}, thick, col)
+    }
+  }
+  // A ring in the air: chords round a circle of radius r.
+  ring(c: vec2, r: f32, thick: i32, col: color) {
+    segs = clamp(int(r * 1.2), 12, 64)
+    for s in 0..segs {
+      q0 = 6.28318 * float(s) / float(segs)
+      q1 = 6.28318 * float(s + 1) / float(segs)
+      line(c + {cos(q0), sin(q0)} * r, c + {cos(q1), sin(q1)} * r, thick, col)
+    }
+  }
+}

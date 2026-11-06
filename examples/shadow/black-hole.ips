@@ -1,0 +1,299 @@
+// Black hole: a perfectly black shadow ringed by a thin photon ring, inside
+// a tilted accretion disc that streams round it, white-hot at the inner edge
+// and cooling to deep red at the rim, brighter on the side swinging towards
+// us. The far half of the disc goes behind the shadow and its light, bent
+// round the hole, arches over the top as a lensed ring; the near half crosses
+// in front. Motes spiral in along the disc, faster and faster, and vanish
+// at the edge of the shadow.
+//
+// Category: shadow. Loop. Canvas 112x80, origin 56,40 (the centre of the
+// hole; it floats, so place the origin where it hangs). Side view, a little
+// above the disc's plane.
+// Frames: the seed rolls 18, 24 or 36 frames at 16.5-19.5 fps; `frames` retimes
+// it. The disc's streaks repeat round it m times, and each band turns a whole
+// number of m-ths a cycle (the inner bands faster), so frame frames+1 is
+// frame 1.
+// Light: the mask holds the hot inner disc, the lensed ring, the photon ring
+// and the motes; the shadow gives none. Power breathes round 2.6, sigma 8,
+// blur 1.5.
+//   tint   transparent rolls the colour (50% amber, 30% void violet, 20% ion
+//          cyan); a colour recolours the disc
+//
+// Variety: medium
+asset BlackHole {
+  size 112x80
+  origin 56,40
+
+  // ---- the effect contract -------------------------------------------------
+  // 0 draws the hero frame; 1..frames play the cycle; a loop wraps, so
+  // frames+1 draws frame 1 again.
+  input u32 frame = 0
+  // 0 rolls the frame count from the seed; 2..64 retimes the effect.
+  input u32 frames = 0
+  // 0 colour sprite, 1 light mask, 2 light under the pixels (the mask with
+  // power, sigma and blur applied, ready to add under the sprite).
+  input u32 renderPass = 0
+  // 0 keeps this frame's own value; above 0 forces it.
+  input f32 power = 0.0
+  input f32 sigma = 0.0
+  input f32 blur = 0.0
+  // Transparent rolls the colour from the seed; a colour recolours it.
+  input color tint = #00000000
+
+  // {frames, fps, loop (1) or one-shot (0), the frame drawn (0 when done)}
+  output rect anim
+  // {x: power, y: sigma, radius: blur} of this frame's light
+  output circle glow
+
+  palette amber = [#0c0604, #2a1008, #5a1e0c, #a03c14, #e0701e, #ffa040, #ffd890, #fff6e0]
+  palette void = [#0a0614, #1e0c3a, #3e1670, #6a28b0, #9a50e8, #c890ff, #ecd4ff, #ffffff]
+  palette ion = [#03101a, #08263a, #0e4a6a, #1a7aa0, #34b0d0, #78e0f0, #c8f8ff, #ffffff]
+
+  const distribution looks = weighted {1: 50, 2: 30, 3: 20}
+  const f32 heroPhase = 0.0
+  const f32 sigmaMax = 12.0
+  const f32 cx = 56.0
+  const f32 cy = 40.0
+  const f32 tau = 6.28318
+
+  // Stream keys, one per purpose; per-particle streams add i * 0x9e3779b1.
+  const i32 timeKey = 0x68e31da4
+  const i32 lookKey = 0x2f6b9a13
+  const i32 moteKey = 0x2545f491
+
+  draw {
+    start = seed
+    // ---- timing: the seed's own frame count, or the one asked for ----------
+    stream_push(hash(start ^ timeKey))
+    rolled = pick(18, 24, 36)
+    rate = 16.5 to 19.5
+    stream_pop()
+    dur = float(rolled) / rate
+    n = rolled
+    if (frames >= 2) { n = min(frames, 64) }
+    f = frame
+    if (f == 0) { f = clamp(int(heroPhase * float(n)) + 1, 1, n) }
+    f = (f - 1) % n + 1
+    phase = (float(f) - 1.0) / float(n)
+
+    // ---- the look: roll everything, whatever the inputs --------------------
+    stream_push(hash(start ^ lookKey))
+    kind = 1 to 3 with looks
+    hole = 6.5 to 8.5
+    outer = 27.0 to 32.0
+    squash = 0.22 to 0.34
+    tilt = -0.28 to 0.28 with gaussian(mean = 0.0, sigma = 0.12)
+    spin = 1.0
+    if (chance(0.5)) { spin = -1.0 }
+    streaks = 5 to 9
+    swirl = {0.0 to 6.28318, 0.0 to 6.28318}
+    stream_pop()
+    cs = amber
+    if (kind == 2) { cs = void }
+    if (kind == 3) { cs = ion }
+    if (tint.a != 0) { cs = rampFrom(tint) }
+    disc = {squash, tilt}
+    size = {hole, outer}
+
+    // ---- this frame's light ------------------------------------------------
+    lp = 2.6 + 0.4 * sin(tau * phase)
+    ls = 8.0
+    lb = 1.5
+    if (power > 0.0) { lp = power }
+    if (sigma > 0.0) { ls = sigma }
+    if (blur > 0.0) { lb = blur }
+    lp = clamp(lp, 0.0, 16.0)
+    ls = clamp(ls, 0.0, sigmaMax)
+    lb = clamp(lb, 0.0, 4.0)
+    anim = {float(n), float(n) / dur, 1.0, float(f)}
+    glow = {lp, ls, lb}
+
+    // ---- the passes (keep as is) -------------------------------------------
+    if (renderPass == 1) {
+      layer mask1(alpha = surface.source_over) { scene(start, phase, cs, size, disc, spin, streaks, swirl, 1, 1.0) }
+      surface.paint(mask1, blend = surface.source_over)
+    } else if (renderPass == 2) {
+      if (lp > 0.0) {
+        k = max(1, int(ceil(lp)))
+        layer mask2(alpha = surface.source_over) { scene(start, phase, cs, size, disc, spin, streaks, swirl, 1, lp / float(k)) }
+        pool = mask2.blur(ls)
+        bloom = mask2.blur(lb)
+        for i in 0..k { surface.paint(pool, blend = surface.source_over) }
+        for i in 0..k { surface.paint(bloom, blend = surface.source_over) }
+      }
+    } else {
+      layer sprite(alpha = surface.source_over) { scene(start, phase, cs, size, disc, spin, streaks, swirl, 0, 1.0) }
+      surface.paint(sprite, blend = surface.source_over)
+    }
+  }
+
+  // Everything at this phase of the cycle, back to front: the far half of the
+  // disc, the lensed ring, the shadow and its photon ring, the near half of
+  // the disc, the motes. pass 0 paints colour; pass 1 paints only what emits
+  // light, alpha scaled by amp.
+  scene(start: i32, phase: f32, cs: list<color>, size: vec2, disc: vec2, spin: f32, streaks: i32, swirl: vec2, pass: i32, amp: f32) {
+    c = {cx, cy}
+    accretion(swirl, phase, cs, c, size, disc, spin, streaks, 0, pass, amp)
+    lensed(swirl, phase, cs, c, size.x, spin, streaks, pass, amp)
+    if (pass == 0) { oval(c, size.x, size.x, #000000) }
+    photon(phase, cs, c, size.x, disc, spin, pass, amp)
+    accretion(swirl, phase, cs, c, size, disc, spin, streaks, 1, pass, amp)
+    motes(start, phase, cs, c, size, disc, spin, pass, amp)
+  }
+
+  // A point on the disc's plane at radius r and angle q, tilted and squashed.
+  onDisc(c: vec2, r: f32, q: f32, disc: vec2) -> vec2 {
+    lx = cos(q) * r
+    ly = sin(q) * r * disc.x
+    return {c.x + lx * cos(disc.y) - ly * sin(disc.y), c.y + lx * sin(disc.y) + ly * cos(disc.y)}
+  }
+
+  // How bright the disc's streaks are at angle q in band b: each band's
+  // pattern repeats m times round and turns k m-ths of a turn a cycle.
+  streak(q: f32, phase: f32, spin: f32, m: i32, k: i32, off: vec2) -> f32 {
+    a = q - spin * tau * float(k) * phase / float(m)
+    return 0.5 + 0.32 * sin(float(m) * a + off.x) + 0.18 * sin(float(2 * m) * a + off.y)
+  }
+
+  // The accretion disc in rings from the hot inner edge out to the cool rim;
+  // near = 0 draws the far half (behind the shadow), 1 the near half. The
+  // side swinging towards us burns brighter.
+  accretion(swirl: vec2, phase: f32, cs: list<color>, c: vec2, size: vec2, disc: vec2, spin: f32, m: i32, near: i32, pass: i32, amp: f32) {
+    inner = size.x + 2.0
+    rings = int((size.y - inner) / 1.4)
+    for j in 0..rings {
+      // The streaks shear smoothly from ring to ring, so they read as arcs.
+      off = {swirl.x + float(j) * 0.45, swirl.y - float(j) * 0.3}
+      r = inner + float(j) * 1.4
+      u = float(j) / float(max(1, rings - 1))
+      k = 1
+      if (u < 0.66) { k = 2 }
+      if (u < 0.33) { k = 3 }
+      fade = 1.0
+      if (u > 0.75) { fade = (1.0 - u) / 0.25 + 0.15 }
+      q0 = 3.14159
+      if (near == 1) { q0 = 0.0 }
+      for s in 0..24 {
+        a0 = q0 + 3.14159 * float(s) / 24.0
+        a1 = q0 + 3.14159 * float(s + 1) / 24.0
+        am = (a0 + a1) * 0.5
+        b = streak(am, phase, spin, m, k, off)
+        // Beaming: the side coming towards us (left when it spins one way,
+        // right the other) is brighter.
+        dop = -spin * cos(am)
+        idx = clamp(int(floor((1.0 - u) * 5.2 + 1.0 + 1.7 * (b - 0.5) + 0.9 * dop + 0.5)), 0, 7)
+        if (pass == 0) { line(onDisc(c, r, a0, disc), onDisc(c, r, a1, disc), 1, ink(cs[idx], fade)) }
+        else if (idx >= 4) { line(onDisc(c, r, a0, disc), onDisc(c, r, a1, disc), 1, ink(cs[idx], (float(idx) - 3.0) * 0.25 * fade * amp)) }
+      }
+    }
+    // The white-hot inner edge.
+    q0 = 3.14159
+    if (near == 1) { q0 = 0.0 }
+    for s in 0..24 {
+      a0 = q0 + 3.14159 * float(s) / 24.0
+      a1 = q0 + 3.14159 * float(s + 1) / 24.0
+      col = cs[6]
+      if (-spin * cos((a0 + a1) * 0.5) > 0.2) { col = cs[7] }
+      ek = 1.0
+      if (pass == 1) { ek = amp }
+      line(onDisc(c, inner - 0.6, a0, disc), onDisc(c, inner - 0.6, a1, disc), 1, ink(col, ek))
+    }
+  }
+
+  // The far disc's light bent round the hole: a ring just outside the
+  // shadow, bright and thick over the top, fainter round the sides and
+  // under it, streaming with the disc.
+  lensed(swirl: vec2, phase: f32, cs: list<color>, c: vec2, hole: f32, spin: f32, m: i32, pass: i32, amp: f32) {
+    for band in 0..3 {
+      off = {swirl.y + float(band) * 0.7, swirl.x - float(band) * 0.4}
+      r = hole + 2.0 + float(band) * 1.5
+      for s in 0..36 {
+        a0 = tau * float(s) / 36.0
+        a1 = tau * float(s + 1) / 36.0
+        am = (a0 + a1) * 0.5
+        top = max(0.0, -sin(am))
+        b = streak(am, phase, -spin, m, 2, off)
+        // The arch over the top widens outwards; round the sides and under
+        // the shadow only the innermost band shows.
+        show = 1
+        if (band > 0 && top < 0.35 + 0.25 * float(band)) { show = 0 }
+        if (show == 1) {
+          idx = clamp(int(floor(2.2 + 3.6 * top - 0.8 * float(band) + 1.4 * (b - 0.5) + 0.5)), 0, 7)
+          p0 = c + {cos(a0), sin(a0)} * r
+          p1 = c + {cos(a1), sin(a1)} * r
+          if (pass == 0) { line(p0, p1, 2, cs[idx]) }
+          else if (idx >= 4) { line(p0, p1, 2, ink(cs[idx], 0.6 * amp)) }
+        }
+      }
+    }
+  }
+
+  // The photon ring: a hair of white light hugging the shadow, brightest on
+  // the side coming towards us.
+  photon(phase: f32, cs: list<color>, c: vec2, hole: f32, disc: vec2, spin: f32, pass: i32, amp: f32) {
+    for s in 0..32 {
+      a0 = tau * float(s) / 32.0
+      a1 = tau * float(s + 1) / 32.0
+      dop = -spin * cos((a0 + a1) * 0.5)
+      col = cs[6]
+      if (dop > 0.3) { col = cs[7] }
+      if (dop < -0.5) { col = cs[5] }
+      p0 = c + {cos(a0), sin(a0)} * (hole + 0.6)
+      p1 = c + {cos(a1), sin(a1)} * (hole + 0.6)
+      if (pass == 0) { line(p0, p1, 1, col) }
+      else { line(p0, p1, 1, ink(col, 0.9 * amp)) }
+    }
+  }
+
+  // Motes spiralling in along the disc, faster as they fall, swallowed at the
+  // edge of the shadow; each leaves a short streak. Behind the shadow they
+  // are hidden by it.
+  motes(start: i32, phase: f32, cs: list<color>, c: vec2, size: vec2, disc: vec2, spin: f32, pass: i32, amp: f32) {
+    for i in 0..14 {
+      stream_push(hash((start ^ moteKey) + i * 0x9e3779b1))
+      at = 0.0 to 1.0
+      births = pick(1, 2)
+      q0 = 0.0 to 6.28318
+      r0 = 0.8 to 1.15
+      turns = 0.6 to 1.2
+      white = chance(0.4)
+      stream_pop()
+      u = fract(phase * float(births) + at)
+      ub = max(0.0, u - 0.06)
+      r = size.x + (size.y * r0 - size.x) * (1.0 - u) * (1.0 - u)
+      rb = size.x + (size.y * r0 - size.x) * (1.0 - ub) * (1.0 - ub)
+      q = q0 + spin * tau * turns * u * u
+      qb = q0 + spin * tau * turns * ub * ub
+      p = onDisc(c, r, q, disc)
+      pb = onDisc(c, rb, qb, disc)
+      // Hidden while it is behind the shadow.
+      behind = 0
+      if (sin(q) < 0.0 && vec2.len(p - c) < size.x + 1.0) { behind = 1 }
+      if (r > size.x + 0.8 && behind == 0) {
+        a = min(1.0, u * 5.0) * (1.0 - smoothstep(0.85, 1.0, u))
+        col = cs[6]
+        if (white == 1) { col = cs[7] }
+        if (pass == 0) {
+          line(pb, p, 1, ink(cs[4], a * 0.6))
+          pixel(int(p.x), int(p.y), ink(col, a))
+        } else { pixel(int(p.x), int(p.y), ink(col, a * amp)) }
+      }
+    }
+  }
+
+  // ---- toolkit ---------------------------------------------------------------
+  // The colour with its alpha scaled by a (clamped to 0..1).
+  ink(c: color, a: f32) -> color {
+    return color.set.a(c, int(clamp(a, 0.0, 1.0) * float(c.a)))
+  }
+  // The fractional part: fract(phase * n + offset) repeats n times a loop.
+  fract(x: f32) -> f32 {
+    return x - floor(x)
+  }
+  // Eight steps from a dark shade of the colour, through it, to white.
+  rampFrom(c: color) -> list<color> {
+    base = color.set.a(c, 255)
+    return [color.mix(#08060c, base, 0.2), color.mix(#08060c, base, 0.4), color.mix(#08060c, base, 0.62),
+            color.mix(#08060c, base, 0.84), base, color.mix(base, #fff8e8, 0.35), color.mix(base, #fff8e8, 0.68), #ffffff]
+  }
+}

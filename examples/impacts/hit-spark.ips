@@ -1,0 +1,326 @@
+// Hit spark: the everyday hit. A sharp, lopsided cross flare (one long ray
+// along the blow, a stub behind, two unequal arms across and a glint) round
+// a crisp white diamond; next frame it reaches further and thins, then only
+// the long ray lingers, its root burning away. A cone of sparks sprays along
+// the blow as white streaks that cool, fall and bounce off the floor, and hot
+// chips tumble down to tick off it.
+//
+// Category: impacts. One-shot. Canvas 112x80, origin 36,72 (the floor under
+// the hit; the blow travels to the right, so mirror it for hits to the left).
+// Side view at the scale of a 24x38 character, light from the upper left.
+// Frames: the seed rolls 9, 12 or 15 frames over 0.46-0.56 s; `frames`
+// retimes it. The flare's three stages last at least one frame each, so the
+// first frame is always the full flash.
+// Light: the mask holds the flare, a light-only pop at the hit and along the
+// blow, the floor under it, the sparks and the chips; power flashes to about
+// 9 and falls away with the pop, sigma 8, blur 1.5.
+//   tint   transparent rolls the colour (55% ember, 20% steel, 15% arcane,
+//          10% venom); a colour recolours the hit
+//
+// Variety: medium
+asset HitSpark {
+  size 112x80
+  origin 36,72
+
+  // ---- the effect contract -------------------------------------------------
+  // 0 draws the hero frame; 1..frames play the effect; past its end a
+  // one-shot draws nothing.
+  input u32 frame = 0
+  // 0 rolls the frame count from the seed; 2..64 retimes the effect.
+  input u32 frames = 0
+  // 0 colour sprite, 1 light mask, 2 light under the pixels (the mask with
+  // power, sigma and blur applied, ready to add under the sprite).
+  input u32 renderPass = 0
+  // 0 keeps this frame's own value; above 0 forces it.
+  input f32 power = 0.0
+  input f32 sigma = 0.0
+  input f32 blur = 0.0
+  // Transparent rolls the colour from the seed; a colour recolours it.
+  input color tint = #00000000
+
+  // {frames, fps, loop (1) or one-shot (0), the frame drawn (0 when done)}
+  output rect anim
+  // {x: power, y: sigma, radius: blur} of this frame's light
+  output circle glow
+
+  // Seven steps each: an outline shade, the body, the hot tones, white.
+  palette ember = [#4a1712, #c9281f, #f2561d, #ff8a2a, #ffe26b, #fff3a6, #ffffff]
+  palette steel = [#1a2238, #34508a, #4f86c6, #7cc0ee, #c4ecff, #eefaff, #ffffff]
+  palette arcane = [#2a0f48, #6a24a0, #a040d8, #d070ff, #f0b4ff, #fbe4ff, #ffffff]
+  palette venom = [#12301a, #2e7a2a, #4eb43a, #8ae04a, #d4ff8a, #f2ffd0, #ffffff]
+
+  const distribution looks = weighted {1: 55, 2: 20, 3: 15, 4: 10}
+  const f32 heroPhase = 0.0
+  const f32 sigmaMax = 12.0
+  const f32 cx = 36.0
+  const f32 floorY = 72.0
+  const f32 grav = 600.0
+  const f32 drag = 6.0
+
+  // Stream keys, one per purpose; per-particle streams add i * 0x9e3779b1.
+  const i32 timeKey = 0x68e31da4
+  const i32 lookKey = 0x2f6b9a13
+  const i32 rayKey = 0x1b873593
+  const i32 sparkKey = 0x2545f491
+  const i32 chipKey = 0x3c6ef372
+
+  draw {
+    start = seed
+    // ---- timing: the seed's own frame count, or the one asked for ----------
+    stream_push(hash(start ^ timeKey))
+    rolled = pick(9, 12, 15)
+    dur = 0.46 to 0.56
+    stream_pop()
+    n = rolled
+    if (frames >= 2) { n = min(frames, 64) }
+    f = frame
+    if (f == 0) { f = clamp(int(heroPhase * float(n)) + 1, 1, n) }
+    t = (float(f) - 0.5) / float(n) * dur
+    step = dur / float(n)
+
+    // ---- the look: roll everything, whatever the inputs --------------------
+    stream_push(hash(start ^ lookKey))
+    kind = 1 to 4 with looks
+    aim = -0.15 to 0.3 with gaussian(mean = 0.06, sigma = 0.12)
+    height = 16.0 to 24.0
+    tilt = -0.08 to 0.08
+    sparks = 7 to 11
+    chips = 4 to 7
+    stream_pop()
+    cs = ember
+    if (kind == 2) { cs = steel }
+    if (kind == 3) { cs = arcane }
+    if (kind == 4) { cs = venom }
+    if (tint.a != 0) { cs = rampFrom7(tint) }
+
+    // ---- this frame's light ------------------------------------------------
+    // A flash with the pop, a tail while the sparks fly; dark once they die.
+    lp = (7.0 * exp(-t / 0.045) + 2.0 * exp(-t / 0.16) + 0.6) * (1.0 - smoothstep(0.4 * dur, 0.72 * dur, t))
+    ls = 8.0
+    lb = 1.5
+    if (power > 0.0) { lp = power }
+    if (sigma > 0.0) { ls = sigma }
+    if (blur > 0.0) { lb = blur }
+    lp = clamp(lp, 0.0, 16.0)
+    ls = clamp(ls, 0.0, sigmaMax)
+    lb = clamp(lb, 0.0, 4.0)
+    shown = f
+    if (f > n) {
+      shown = 0
+      lp = 0.0
+    }
+    anim = {float(n), float(n) / dur, 0.0, float(shown)}
+    glow = {lp, ls, lb}
+
+    // ---- the passes (keep as is) -------------------------------------------
+    if (f <= n) {
+      if (renderPass == 1) {
+        layer mask1(alpha = surface.source_over) { scene(start, t, dur, step, cs, aim, height, tilt, sparks, chips, 1, 1.0) }
+        surface.paint(mask1, blend = surface.source_over)
+      } else if (renderPass == 2) {
+        if (lp > 0.0) {
+          k = max(1, int(ceil(lp)))
+          layer mask2(alpha = surface.source_over) { scene(start, t, dur, step, cs, aim, height, tilt, sparks, chips, 1, lp / float(k)) }
+          pool = mask2.blur(ls)
+          bloom = mask2.blur(lb)
+          for i in 0..k { surface.paint(pool, blend = surface.source_over) }
+          for i in 0..k { surface.paint(bloom, blend = surface.source_over) }
+        }
+      } else {
+        layer sprite(alpha = surface.source_over) { scene(start, t, dur, step, cs, aim, height, tilt, sparks, chips, 0, 1.0) }
+        surface.paint(sprite, blend = surface.source_over)
+      }
+    }
+  }
+
+  // Everything at time t, back to front. pass 0 paints colour; pass 1 paints
+  // only what emits light, in its light colour, alpha scaled by amp.
+  scene(start: i32, t: f32, dur: f32, step: f32, cs: list<color>, aim: f32, height: f32, tilt: f32, sparks: i32, chips: i32, pass: i32, amp: f32) {
+    hit = {cx, floorY - height}
+    if (pass == 1) {
+      pop = exp(-t / 0.045)
+      oval(hit, 5.0, 5.0, ink(cs[4], 0.9 * pop * amp))
+      line(hit, hit + {cos(aim), sin(aim)} * 24.0, 3, ink(cs[5], 0.6 * pop * amp))
+      oval(cx + 4.0, floorY + 0.5, 18.0, 1.5, ink(cs[3], 0.6 * exp(-t / 0.12) * amp))
+    }
+    chipSpray(start, t, dur, cs, hit, aim, chips, pass, amp)
+    sparkSpray(start, t, dur, cs, hit, aim, sparks, pass, amp)
+    flare(start, t, step, cs, hit, aim + tilt, pass, amp)
+  }
+
+  // The cross flare in its three stages, each at least one frame long.
+  flare(start: i32, t: f32, step: f32, cs: list<color>, hit: vec2, a: f32, pass: i32, amp: f32) {
+    stream_push(hash(start ^ rayKey))
+    l0 = 33.0 to 37.0
+    l1 = 8.0 to 10.0
+    l2 = 15.0 to 18.0
+    l3 = 10.0 to 12.0
+    l4 = 5.0 to 7.0
+    stream_pop()
+    if (t < max(0.035, step)) {
+      // The flash: the whole cross round the diamond.
+      ray(hit, a, l0, 2.2, 0.0, cs, 0, pass, amp)
+      ray(hit, a + 3.14159, l1, 2.2, 0.0, cs, 0, pass, amp)
+      ray(hit, a - 1.5708, l2, 2.6, 0.0, cs, 0, pass, amp)
+      ray(hit, a + 1.5708, l3, 2.3, 0.0, cs, 0, pass, amp)
+      ray(hit, a - 0.7854, l4, 1.0, 0.0, cs, 0, pass, amp)
+      diamond(hit, 4.0, cs, pass, amp)
+    } else if (t < max(0.075, 2.0 * step)) {
+      // Reaching further and thinning, torn from the diamond, still crisp.
+      ray(hit, a, l0 * 1.2, 1.2, 0.12, cs, 0, pass, amp)
+      ray(hit, a + 3.14159, l1 * 1.2, 1.2, 0.12, cs, 0, pass, amp)
+      ray(hit, a - 1.5708, l2 * 1.2, 1.4, 0.12, cs, 0, pass, amp)
+      ray(hit, a + 1.5708, l3 * 1.2, 1.3, 0.12, cs, 0, pass, amp)
+      diamond(hit, 3.0, cs, pass, amp)
+    } else if (t < max(0.11, 3.0 * step)) {
+      // Only the long ray lingers, its root burnt away.
+      ray(hit, a, l0 * 1.3, 0.6, 0.4, cs, 1, pass, amp)
+    }
+  }
+
+  // One ray of the cross from u = root to its tip: fat at the root, a hair at
+  // the tip; its spine white, cooling outward in bands. cool = 1 draws it a
+  // step darker, burning out.
+  ray(p: vec2, a: f32, len: f32, w: f32, root: f32, cs: list<color>, cool: i32, pass: i32, amp: f32) {
+    dir = {cos(a), sin(a)}
+    nrm = {-dir.y, dir.x}
+    k = 1.0
+    if (pass == 1) { k = amp }
+    u1 = root + (1.0 - root) * 0.33
+    u2 = root + (1.0 - root) * 0.66
+    h0 = w * pow(1.0 - root, 1.6)
+    h1 = w * pow(1.0 - u1, 1.6)
+    h2 = w * pow(1.0 - u2, 1.6)
+    if (h0 > 0.6) {
+      side = cs[4]
+      if (cool == 1) { side = cs[2] }
+      a0 = p + dir * (len * root)
+      b1 = p + dir * (len * u1)
+      b2 = p + dir * (len * u2)
+      tip = p + dir * len
+      poly(ink(side, k), a0.x + nrm.x * h0, a0.y + nrm.y * h0, b1.x + nrm.x * h1, b1.y + nrm.y * h1,
+           b2.x + nrm.x * h2, b2.y + nrm.y * h2, tip.x, tip.y,
+           b2.x - nrm.x * h2, b2.y - nrm.y * h2, b1.x - nrm.x * h1, b1.y - nrm.y * h1, a0.x - nrm.x * h0, a0.y - nrm.y * h0)
+      if (root < 0.3 && cool == 0) {
+        // Next to the white root the sides run pale.
+        m = p + dir * (len * 0.3)
+        hm = min(1.0, w * pow(0.7, 1.6))
+        hr = min(1.0, h0)
+        poly(ink(cs[5], k), a0.x + nrm.x * hr, a0.y + nrm.y * hr, m.x + nrm.x * hm, m.y + nrm.y * hm,
+             m.x - nrm.x * hm, m.y - nrm.y * hm, a0.x - nrm.x * hr, a0.y - nrm.y * hr)
+      }
+    }
+    // The spine in bands: white, then the pale, hot and warm tones.
+    spine(p, dir, len, root, 0.3, ink(cs[6], k))
+    if (cool == 1) {
+      spine(p, dir, len, root, 0.62, ink(cs[4], k))
+      spine(p, dir, len, max(root, 0.62), 1.0, ink(cs[3], k))
+    } else {
+      spine(p, dir, len, max(root, 0.3), 0.62, ink(cs[5], k))
+      spine(p, dir, len, max(root, 0.62), 0.88, ink(cs[4], k))
+      spine(p, dir, len, max(root, 0.88), 1.0, ink(cs[3], k))
+    }
+  }
+
+  // The stretch u0..u1 of a ray's spine, one pixel wide.
+  spine(p: vec2, dir: vec2, len: f32, u0: f32, u1: f32, col: color) {
+    if (u1 > u0) { line(p + dir * (len * u0), p + dir * (len * u1), 1, col) }
+  }
+
+  // The core: a crisp white diamond with a pale rim, on whole pixels.
+  diamond(hit: vec2, r: f32, cs: list<color>, pass: i32, amp: f32) {
+    x = floor(hit.x) + 0.5
+    y = floor(hit.y) + 0.5
+    k = 1.0
+    if (pass == 1) { k = amp }
+    e = r + 1.5
+    poly(ink(cs[3], k), x - e, y, x, y - e, x + e, y, x, y + e)
+    e = r + 0.5
+    poly(ink(cs[6], k), x - e, y, x, y - e, x + e, y, x, y + e)
+  }
+
+  // A cone of sparks sprayed along the blow: white streaks that cool through
+  // the ramp, fall, bounce off the floor and die.
+  sparkSpray(start: i32, t: f32, dur: f32, cs: list<color>, hit: vec2, aim: f32, sparks: i32, pass: i32, amp: f32) {
+    for i in 0..sparks {
+      stream_push(hash((start ^ sparkKey) + i * 0x9e3779b1))
+      spread = -0.6 to 0.6
+      v = 170.0 to 360.0
+      life = 0.45 to 0.8
+      late = 0.01 to 0.03
+      stream_pop()
+      a = aim + spread - 0.15
+      life = life * dur
+      age = t
+      if (i > 6) { age = t - late }
+      if (age > 0.0 && age < life) {
+        vel = {cos(a) * v, sin(a) * v - 40.0}
+        p = fly(hit + {1.0, 0.0}, vel, age)
+        pb = fly(hit + {1.0, 0.0}, vel, max(0.0, age - 0.022))
+        u = age / life
+        col = cs[2]
+        if (u < 0.8) { col = cs[4] }
+        if (u < 0.6) { col = cs[5] }
+        if (u < 0.35) { col = cs[6] }
+        if (pass == 0) { line(pb, p, 1, col) }
+        else { line(pb, p, 1, ink(col, (1.0 - u) * amp)) }
+      }
+    }
+  }
+
+  // Hot chips knocked off: single pixels tumbling down to tick off the floor.
+  chipSpray(start: i32, t: f32, dur: f32, cs: list<color>, hit: vec2, aim: f32, chips: i32, pass: i32, amp: f32) {
+    for i in 0..chips {
+      stream_push(hash((start ^ chipKey) + i * 0x9e3779b1))
+      spread = -1.1 to 0.5
+      v = 70.0 to 170.0
+      up = 30.0 to 80.0
+      life = 0.86 to 1.0
+      shade = 0 to 3
+      stream_pop()
+      a = aim + spread - 0.3
+      // The first chip lasts the whole effect, so the last frame still ticks.
+      life = life * dur
+      if (i == 0) { life = dur }
+      if (t < life) {
+        p = fly(hit + {1.0, 0.0}, {cos(a) * v, sin(a) * v - up}, t)
+        col = cs[4]
+        if (shade == 0) { col = cs[5] }
+        if (shade == 3) { col = cs[3] }
+        fade = 1.0 - smoothstep(0.75, 1.0, t / life)
+        if (pass == 1) { fade = fade * amp }
+        pixel(int(p.x), int(p.y), ink(col, fade))
+      }
+    }
+  }
+
+  // Where a particle launched from p0 at v (px/s) is after t seconds, with
+  // gravity, drag and a floor it bounces off, stepped at 120 Hz.
+  fly(p0: vec2, v: vec2, t: f32) -> vec2 {
+    p = p0
+    u = v
+    dt = 1.0 / 120.0
+    steps = int(t * 120.0)
+    for i in 0..steps {
+      u = {u.x * (1.0 - drag * dt), u.y * (1.0 - drag * dt) + grav * dt}
+      p = p + u * dt
+      if (p.y > floorY - 1.0) {
+        p = {p.x, floorY - 1.0}
+        u = {u.x * 0.7, -abs(u.y) * 0.35}
+      }
+    }
+    return p + u * (t - float(steps) * dt)
+  }
+
+  // ---- toolkit ---------------------------------------------------------------
+  // The colour with its alpha scaled by a (clamped to 0..1).
+  ink(c: color, a: f32) -> color {
+    return color.set.a(c, int(clamp(a, 0.0, 1.0) * float(c.a)))
+  }
+  // Seven steps from a dark shade of the colour, through it, to white.
+  rampFrom7(c: color) -> list<color> {
+    base = color.set.a(c, 255)
+    return [color.mix(#08060c, base, 0.3), color.mix(#08060c, base, 0.66), color.mix(#08060c, base, 0.88),
+            base, color.mix(base, #fff8e8, 0.45), color.mix(base, #fff8e8, 0.78), #ffffff]
+  }
+}

@@ -1,0 +1,11 @@
+schema_version: "1.1"
+name: fix-torch-loop
+expected_outcome: |
+  torch/torch.ips still is a 64x96 loop standing on 32,90 with its stick, cup, stacked flame
+  tongues, sparks, palettes and tint input, but every motion is periodic in the phase (whole waves
+  for the sway and the breath, sparks born a whole number of times a cycle), so frame frames+1
+  meets frame 1 without a jump, and the light's flicker is counted in time instead of re-rolled per
+  frame index, so forcing frames=48 does not make it twitch faster. check-fx prints PASS for it
+  and torch/torch.iprop is rewritten from the fixed source.
+context:
+  scaffold_script: place-files.sh

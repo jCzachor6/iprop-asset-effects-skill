@@ -1,0 +1,912 @@
+// Splash: a stone drops into still water. A white hit, then a crown leaps up
+// round the hole: a thin sheet with a rolled white lip, its far wall solid,
+// its near wall see-through between bright streaks. Fingers run up off the
+// lip and the beads on their tips tear off and arc away. The crown gives way
+// lane by lane and falls back, shedding heavy drops, and a jet bounces up the
+// middle, a bead pinching off its tip. Every drop plinks down with a ring of
+// its own (the big ones throw up a few tiny drops), ripple trains spread and
+// break into glinting dashes, lacy foam floats on the middle, mist rolls out
+// low along the water, and the sunk stone lets go of bubbles that pop.
+//
+// After pixelfx's water splash (MIT, Patch and Hugo Duprez): see NOTICE.md.
+//
+// Category: water. One-shot. Canvas 160x96, origin 80,72 (the water's surface
+// where the stone goes in). Seen from the side at a low angle: rings on the
+// surface are 0.22 as tall as they are wide; light from the upper left.
+// Frames: the seed rolls 28, 34 or 40 frames over 1.5-1.9 s; `frames`
+// retimes it. The splash runs 1.64 s from the hit (after the stone's 0.16 s
+// fall) and is played to fit.
+// Light: water throws back a little light. The mask holds the white lip and
+// fingers, the beads, the crests and plinks, and a soft glow over the hit;
+// power flashes to about 2 at the hit and settles at 0.5, sigma 6, blur 1.5.
+// Lava (a rare look) glows all over: power about 2.6-4.8, sigma 8.
+//   tint   transparent rolls the liquid (60% water, 20% swamp, 20% lava); a
+//          colour recolours it
+//   stone  0 rolls it (three seeds in four drop a stone in first), 1 the
+//          stone falls in, 2 the splash alone, starting at the hit
+//
+// Variety: medium
+asset Splash {
+  size 160x96
+  origin 80,72
+
+  // ---- the effect contract -------------------------------------------------
+  // 0 draws the hero frame; 1..frames play the effect; past its end a
+  // one-shot draws nothing.
+  input u32 frame = 0
+  // 0 rolls the frame count from the seed; 2..64 retimes the effect.
+  input u32 frames = 0
+  // 0 colour sprite, 1 light mask, 2 light under the pixels (the mask with
+  // power, sigma and blur applied, ready to add under the sprite).
+  input u32 renderPass = 0
+  // 0 keeps this frame's own value; above 0 forces it.
+  input f32 power = 0.0
+  input f32 sigma = 0.0
+  input f32 blur = 0.0
+  // Transparent rolls the liquid from the seed; a colour recolours it.
+  input color tint = #00000000
+  // 0 rolls it, 1 a stone falls in first, 2 the splash alone.
+  input u32 stone = 0
+
+  // {frames, fps, loop (1) or one-shot (0), the frame drawn (0 when done)}
+  output rect anim
+  // {x: power, y: sigma, radius: blur} of this frame's light
+  output circle glow
+
+  palette water = [#0a1a2e, #123a5a, #1c5e8a, #2a88b8, #48b4e0, #8ad8f4, #d0f4ff, #ffffff]
+  palette swamp = [#0e1a10, #1c3420, #2c5030, #427040, #62945a, #94bc84, #d0e8c0, #ffffff]
+  palette lava = [#2a0806, #5c1208, #9a240a, #d8460e, #ff7a1a, #ffb43a, #ffe68a, #fffbe6]
+  palette rock = [#141219, #221f2b, #34303f, #4a4558, #655f74, #8a8498]
+  palette smoke = [#3a302e, #5a4a44, #7a665c]
+
+  const distribution looks = weighted {1: 60, 2: 20, 3: 20}
+  const f32 sigmaMax = 12.0
+  const f32 cx = 80.0
+  const f32 floorY = 72.0
+  const f32 tau = 6.28318
+  const f32 sy = 0.22
+  const f32 grav = 820.0
+  const f32 drag = 0.35
+  // When the fingers' beads tear off, and when the jet starts, after the hit.
+  const f32 tear = 0.11
+  const f32 jetAt = 0.3
+  // How long the splash runs after the hit.
+  const f32 after = 1.64
+
+  // Stream keys, one per purpose; per-particle streams add i * 0x9e3779b1.
+  const i32 timeKey = 0x68e31da4
+  const i32 lookKey = 0x2f6b9a13
+  const i32 fingerKey = 0x1b873593
+  const i32 dropKey = 0x2545f491
+  const i32 laneKey = 0x4f1bbcdc
+  const i32 scallopKey = 0x7a3d1f29
+  const i32 ringKey = 0x5bd1e995
+  const i32 mistKey = 0x632be5ab
+  const i32 flakeKey = 0x3c6ef372
+  const i32 starKey = 0x6a09e667
+  const i32 bubbleKey = 0x510e527f
+  const i32 foamKey = 0x1f83d9ab
+
+  draw {
+    start = seed
+    // ---- timing: the seed's own frame count, or the one asked for ----------
+    stream_push(hash(start ^ timeKey))
+    rolled = pick(28, 34, 40)
+    dur = 1.5 to 1.9
+    stream_pop()
+
+    // ---- the look: roll everything, whatever the inputs --------------------
+    stream_push(hash(start ^ lookKey))
+    kind = 1 to 3 with looks
+    size = 0.85 to 1.15 with gaussian(mean = 1.0, sigma = 0.08)
+    fingers = 10 to 14
+    phi = 0.0 to 6.28318
+    dropIn = chance(0.75)
+    stream_pop()
+    if (stone == 1) { dropIn = 1 }
+    if (stone == 2) { dropIn = 0 }
+    hit = 0.02
+    if (dropIn == 1) { hit = 0.16 }
+    natural = hit + after
+    dur = dur * natural / 1.8
+
+    n = rolled
+    if (frames >= 2) { n = min(frames, 64) }
+    f = frame
+    if (f == 0) { f = clamp(int((hit + 0.1) / natural * float(n)) + 1, 1, n) }
+    t = (float(f) - 0.5) / float(n) * natural
+    u = t - hit
+
+    cs = water
+    if (kind == 2) { cs = swamp }
+    if (kind == 3) { cs = lava }
+    // Lava lights up all of it a little; water only its brightest bits.
+    all = 0.0
+    steam = 0
+    if (kind == 3) {
+      all = 0.55
+      steam = 1
+    }
+    if (tint.a != 0) {
+      cs = rampFrom(tint)
+      all = 0.0
+      steam = 0
+    }
+
+    // ---- this frame's light ------------------------------------------------
+    flash = 0.0
+    if (u >= 0.0) { flash = exp(-u / 0.1) }
+    lp = 0.0
+    ls = 6.0
+    if (u >= 0.0) {
+      lp = 0.5 + 1.6 * flash
+      if (all > 0.0) { lp = 2.6 + 2.2 * flash }
+    }
+    if (all > 0.0) { ls = 8.0 }
+    lp = lp * (1.0 - smoothstep(0.75, 1.2, u))
+    lb = 1.5
+    if (power > 0.0) { lp = power }
+    if (sigma > 0.0) { ls = sigma }
+    if (blur > 0.0) { lb = blur }
+    lp = clamp(lp, 0.0, 16.0)
+    ls = clamp(ls, 0.0, sigmaMax)
+    lb = clamp(lb, 0.0, 4.0)
+    shown = f
+    if (f > n) {
+      shown = 0
+      lp = 0.0
+    }
+    anim = {float(n), float(n) / dur, 0.0, float(shown)}
+    glow = {lp, ls, lb}
+
+    // ---- the passes (keep as is) -------------------------------------------
+    if (f <= n) {
+      if (renderPass == 1) {
+        layer mask1(alpha = surface.source_over) { scene(start, t, u, hit, cs, size, fingers, phi, dropIn, steam, all, 1, 1.0) }
+        surface.paint(mask1, blend = surface.source_over)
+      } else if (renderPass == 2) {
+        if (lp > 0.0) {
+          k = max(1, int(ceil(lp)))
+          layer mask2(alpha = surface.source_over) { scene(start, t, u, hit, cs, size, fingers, phi, dropIn, steam, all, 1, lp / float(k)) }
+          pool = mask2.blur(ls)
+          bloom = mask2.blur(lb)
+          for i in 0..k { surface.paint(pool, blend = surface.source_over) }
+          for i in 0..k { surface.paint(bloom, blend = surface.source_over) }
+        }
+      } else {
+        layer sprite(alpha = surface.source_over) { scene(start, t, u, hit, cs, size, fingers, phi, dropIn, steam, all, 0, 1.0) }
+        surface.paint(sprite, blend = surface.source_over)
+      }
+    }
+  }
+
+  // Everything at time t (u after the hit), back to front: the cavity, the
+  // far halves of the ripples, the crown's far wall, the drops behind; then
+  // the near halves, the foam, the near wall, the jet, bubbles, the drops in
+  // front, the hit, the stone, mist and spray. pass 0 paints colour; pass 1
+  // paints only what lights up, alpha scaled by amp (all: the least of it).
+  scene(start: i32, t: f32, u: f32, hit: f32, cs: list<color>, size: f32, fingers: i32, phi: f32, dropIn: i32, steam: i32, all: f32, pass: i32, amp: f32) {
+    if (pass == 1) { lights(u, size, cs, amp) }
+    cavity(u, size, cs, pass)
+    ripples(start, u, size, -1, cs, pass, amp, all)
+    crown(start, u, size, fingers, phi, cs, 1, pass, amp, all)
+    drops(start, u, size, fingers, phi, -1, cs, pass, amp, all)
+    ripples(start, u, size, 1, cs, pass, amp, all)
+    foam(start, u, size, cs, pass, amp, all)
+    crown(start, u, size, fingers, phi, cs, 0, pass, amp, all)
+    jet(u, size, cs, pass, amp, all)
+    bubbles(start, u, cs, pass, amp, all)
+    drops(start, u, size, fingers, phi, 1, cs, pass, amp, all)
+    hitFlash(u, cs, pass, amp, all)
+    if (dropIn == 1) { pebble(t, hit, pass) }
+    mist(start, u, size, cs, steam, pass, amp)
+    flakes(start, u, size, cs, pass, amp, all)
+    stars(start, u, cs, pass, amp, all)
+  }
+
+  // ---- the surface -----------------------------------------------------------
+  // A point x across, z into the picture (negative is far) and h above the
+  // surface.
+  at(x: f32, z: f32, h: f32) -> vec2 {
+    return {cx + x, floorY + z * sy - h}
+  }
+
+  // The hole the stone punches, dark inside the crown's foot.
+  cavity(u: f32, size: f32, cs: list<color>, pass: i32) {
+    if (pass == 0 && u > 0.0 && u < 0.26) {
+      r = foot(u, size) * 0.85 * (1.0 - smoothstep(0.12, 0.26, u))
+      if (r > 0.5) {
+        oval(cx, floorY, r, r * sy + 0.6, cs[2])
+        halfOval(cx, floorY, r, r * sy + 0.6, cs[1])
+      }
+    }
+  }
+
+  // The ripple trains: one thrown out by the hit, a second just behind it and
+  // a third when the jet slumps. half: -1 the far halves, 1 the near halves.
+  ripples(start: i32, u: f32, size: f32, half: i32, cs: list<color>, pass: i32, amp: f32, all: f32) {
+    ripple(0.0, 0.0, 8.0 * size, 56.0 * size, 2.0, u, 1.35, 2, 3.4, 0.16, 1.0, start ^ ringKey, half, cs, pass, amp, all)
+    ripple(0.0, 0.0, 5.0 * size, 38.0 * size, 1.7, u - 0.14, 0.9, 1, 3.0, 0.0, 0.0, (start ^ ringKey) + 1, half, cs, pass, amp, all)
+    ripple(0.0, 0.0, 3.0 * size, 30.0 * size, 1.5, u - jetAt - 0.38, 0.9, 2, 2.6, 0.0, 0.0, (start ^ ringKey) + 2, half, cs, pass, amp, all)
+  }
+
+  // A ripple age seconds old that spreads from r0 to r1 over its life and
+  // weakens as it goes: n crests gap apart, white while age < hot.
+  ripple(x: f32, z: f32, r0: f32, r1: f32, life: f32, age: f32, k0: f32, n: i32, gap: f32, hot: f32, glint: f32, rs: i32, half: i32, cs: list<color>, pass: i32, amp: f32, all: f32) {
+    if (age >= 0.0 && age < life) {
+      v = age / life
+      r = r0 + (r1 - r0) * (1.0 - pow(1.0 - v, 2.6))
+      k = k0 * pow(1.0 - v, 1.7)
+      white = 0
+      if (age < hot) { white = 1 }
+      ring(x, z, r, k, n, gap * (0.55 + 0.6 * v), half, white, glint * k, rs, cs, pass, amp, all)
+    }
+  }
+
+  // A ring on the surface: n crests gap apart, the outer one brightest. k is
+  // its strength: a crisp crest that steps down the ramp as k falls and
+  // breaks into dashes (whole segments, fixed to the ring) near the end. The
+  // near side and the side toward the light read brighter.
+  ring(x: f32, z: f32, r: f32, k: f32, n: i32, gap: f32, half: i32, white: i32, glint: f32, rs: i32, cs: list<color>, pass: i32, amp: f32, all: f32) {
+    if (k > 0.02 && r >= 0.5) {
+      for j in 0..n {
+        rr = r - float(j) * gap
+        if (rr >= 0.6) {
+          kj = k * (1.0 - float(j) * 0.42)
+          m = 2 * clamp(int(ceil(rr * 1.1)), 4, 64)
+          need = 1.15 - 2.3 * min(1.0, kj * 1.25)
+          i0 = 0
+          i1 = m
+          if (half > 0) { i1 = m / 2 }
+          if (half < 0) { i0 = m / 2 }
+          for i in i0..i1 {
+            a0 = tau * float(i) / float(m)
+            a1 = tau * float(i + 1) / float(m)
+            am = (a0 + a1) * 0.5
+            near = 0
+            if (i < m / 2) { near = 1 }
+            nz = noise(am * 4.7 + float(j) * 5.3, 0.5, rs) * 0.65 + noise(am * 11.3, 1.5, rs + 3) * 0.35
+            if (nz >= need) {
+              lt = kj * (0.7 + 0.3 * float(near)) * (0.88 - 0.12 * cos(am))
+              col = cs[4]
+              if (lt > 0.38) { col = cs[5] }
+              if (lt > 0.7) { col = cs[6] }
+              if (white == 1 && near == 1 && j == 0) { col = cs[7] }
+              line(at(x + cos(a0) * rr, z + sin(a0) * rr, 0.0), at(x + cos(a1) * rr, z + sin(a1) * rr, 0.0), 1, glowInk(col, pass, amp, 0.4 * lt, all))
+            }
+          }
+        }
+      }
+      if (glint > 0.0 && half >= 0) {
+        g = at(x + cos(2.05) * r, z + sin(2.05) * r, 0.0)
+        rect(floor(g.x), floor(g.y), 1.0, 1.0, glowInk(cs[7], pass, amp, 1.0, all))
+        if (pass == 1) { haze(g, 3.0 + glint * 2.0, cs[5], 0.35 * glint * amp) }
+      }
+    }
+  }
+
+  // Lacy foam floating on the middle once the crown is down: the crests of a
+  // ridged noise field make a white net with holes, thinning out as it fades.
+  foam(start: i32, u: f32, size: f32, cs: list<color>, pass: i32, amp: f32, all: f32) {
+    k = smoothstep(0.2, 0.32, u) * (1.0 - smoothstep(0.5, 2.0, u)) * 0.9
+    if (u > 0.2 && k > 0.02) {
+      rx = (4.0 + 11.0 * outCubic((u - 0.2) / 0.7)) * size
+      ry = rx * sy + 0.5
+      corner = {cx - rx - 1.0, floorY - ry - 1.0}
+      span = {2.0 * rx + 2.0, 2.0 * ry + 2.0}
+      layer patch(alpha = surface.source_over) { oval(cx, floorY, rx, ry, #ffffff) }
+      inside = mask.from(patch)
+      thr = 0.93 - 0.3 * k
+      churn = 0.3 + 0.5 * u
+      net = noise.mask(corner, span, noise.mode_ridge, {0.3, 0.9}, thr, start ^ foamKey, octaves = 2, softness = 0.0, comparison = noise.above, warp_amount = churn)
+      surface.paint(mask.intersect(net, inside), color = glowInk(cs[6], pass, amp, 0.3, all))
+      crest = noise.mask(corner, span, noise.mode_ridge, {0.3, 0.9}, thr + 0.05, start ^ foamKey, octaves = 2, softness = 0.0, comparison = noise.above, warp_amount = churn)
+      surface.paint(mask.intersect(crest, inside), color = glowInk(cs[7], pass, amp, 0.6, all))
+    }
+  }
+
+  // ---- the crown ---------------------------------------------------------------
+  // Its height, the radius of its foot and of its lip u after the hit: it
+  // leaps up in a few frames, flares out, then falls back.
+  crownH(u: f32, size: f32) -> f32 {
+    return 19.0 * size * outCubic(u / 0.09) * (1.0 - inQuad((u - 0.12) / 0.3))
+  }
+  foot(u: f32, size: f32) -> f32 {
+    return (3.0 + 7.5 * outCubic(u / 0.45)) * size
+  }
+  lipR(u: f32, size: f32) -> f32 {
+    return foot(u, size) + crownH(u, size) * 0.42 + 3.0 * size * outCubic(u / 0.25)
+  }
+  // The lip isn't level: it rises and dips round the crown.
+  scallop(start: i32, a: f32, h: f32, phi: f32) -> f32 {
+    return h * (0.86 + 0.14 * noise(cos(a) * 2.2 + sin(a) * 1.3 + phi * 3.0, 0.5, start ^ scallopKey))
+  }
+  // A point on the sheet at angle a, v of the way from its foot (r0) to its
+  // lip (rt, at height hh): it flares out near the top.
+  crownPoint(a: f32, v: f32, r0: f32, rt: f32, hh: f32) -> vec2 {
+    r = r0 + (rt - r0) * pow(v, 2.2)
+    return at(cos(a) * r, sin(a) * r, hh * v)
+  }
+
+  // One wall of the crown (back 1 the far wall, 0 the near wall): the sheet in
+  // 64 lanes round the ring, each in three bands up to the rolled lip; lanes
+  // give way from the top as it falls. Then the fingers on the lip, a bead on
+  // each until it tears off.
+  crown(start: i32, u: f32, size: f32, fingers: i32, phi: f32, cs: list<color>, back: i32, pass: i32, amp: f32, all: f32) {
+    h = crownH(u, size)
+    if (u >= 0.0 && h >= 0.7) {
+      r0 = foot(u, size)
+      rt = lipR(u, size)
+      white = 0
+      if (u < 0.045) { white = 1 }
+      i0 = 0
+      i1 = 32
+      if (back == 1) {
+        i0 = 32
+        i1 = 64
+      }
+      for i in i0..i1 {
+        a0 = tau * float(i) / 64.0
+        a1 = tau * float(i + 1) / 64.0
+        cn = cos((a0 + a1) * 0.5)
+        lane = int(floor(((a0 + a1) * 0.5 + phi) * rt / 2.2))
+        streak = 0
+        if (rnd(start ^ laneKey, lane) < 0.3) { streak = 1 }
+        keep = 1.0 - clamp((u - 0.13 - 0.14 * rnd((start ^ laneKey) + 7, lane)) / 0.1, 0.0, 1.0)
+        if (keep > 0.0) {
+          h0 = scallop(start, a0, h, phi)
+          h1 = scallop(start, a1, h, phi)
+          for b in 0..3 {
+            va = 0.0
+            vb = 0.1
+            if (b == 1) {
+              va = 0.1
+              vb = 0.72
+            }
+            if (b == 2) {
+              va = 0.72
+              vb = 1.0
+            }
+            vb = min(vb, keep)
+            if (vb > va) {
+              col = cs[7]
+              lk = 1.0
+              if (white == 0) {
+                if (back == 1) {
+                  col = cs[2]
+                  if (streak == 1) { col = cs[3] }
+                  lk = 0.0
+                  if (b == 2) {
+                    col = cs[4]
+                    if (streak == 1) { col = cs[5] }
+                    lk = 0.25
+                  }
+                } else if (cn < -0.9) {
+                  col = cs[6]
+                  if (cn < -0.97) { col = cs[7] }
+                  lk = 0.6
+                } else if (cn > 0.9) {
+                  col = cs[4]
+                  lk = 0.1
+                } else if (b == 0) {
+                  col = cs[6]
+                  lk = 0.4
+                } else if (streak == 1) {
+                  col = cs[5]
+                  if (cn < -0.2) { col = cs[6] }
+                  lk = 0.3
+                } else {
+                  col = ink(cs[4], 0.22)
+                  if (cn < 0.0) { col = ink(cs[5], 0.22) }
+                  lk = 0.1
+                }
+              }
+              p0 = crownPoint(a0, va, r0, rt, h0)
+              p1 = crownPoint(a1, va, r0, rt, h1)
+              p2 = crownPoint(a1, vb, r0, rt, h1)
+              p3 = crownPoint(a0, vb, r0, rt, h0)
+              poly(glowInk(col, pass, amp, lk, all), p0.x, p0.y, p1.x, p1.y, p2.x, p2.y, p3.x, p3.y)
+            }
+          }
+          // The rolled lip: a hard white line on the near side, softer on the
+          // far, gone where the lane broke.
+          if (white == 0 && keep >= 1.0) {
+            l0 = crownPoint(a0, 1.0, r0, rt, h0)
+            l1 = crownPoint(a1, 1.0, r0, rt, h1)
+            lc = cs[5]
+            lk = 0.4
+            if (back == 0) {
+              lc = cs[6]
+              if (cn < 0.45) { lc = cs[7] }
+              lk = 0.8
+            }
+            line(l0, l1, 1, glowInk(lc, pass, amp, lk, all))
+            if (back == 0 && cn < 0.2) { line(l0 + {0.0, 1.0}, l1 + {0.0, 1.0}, 1, glowInk(cs[6], pass, amp, 0.4, all)) }
+          }
+        }
+      }
+      // Fingers: spikes running on up and out from the lip.
+      reach = 1.0 - smoothstep(tear, tear + 0.1, u)
+      if (reach > 0.0) {
+        for i in 0..fingers {
+          stream_push(hash((start ^ fingerKey) + i * 0x9e3779b1))
+          jit = -0.25 to 0.25
+          fl = 0.2 to 0.36
+          stream_pop()
+          fa = phi + tau * (float(i) + jit) / float(fingers)
+          fb = 0
+          if (sin(fa) < 0.0) { fb = 1 }
+          if (fb == back) {
+            hh = scallop(start, fa, h, phi)
+            fingerLen = h * fl * reach
+            base = at(cos(fa) * rt, sin(fa) * rt, hh)
+            tip = base + {cos(fa) * fingerLen * 0.45, -fingerLen}
+            if (fingerLen >= 1.0) {
+              fc = cs[6]
+              if (back == 1) { fc = cs[4] }
+              if (white == 1) { fc = cs[7] }
+              line(base, tip, 1, glowInk(fc, pass, amp, 0.6, all))
+            }
+            if (u > 0.04 && u < tear) {
+              bs = 2
+              if (back == 1) { bs = 1 }
+              bead(tip - {0.0, 1.0}, {0.0, -1.0}, bs, cs, pass, amp, all)
+            }
+            if (pass == 1 && back == 0 && sin(fa) > 0.3) { haze(base, 6.0, cs[5], 0.22 * reach * amp) }
+          }
+        }
+      }
+    }
+  }
+
+  // ---- the jet -------------------------------------------------------------------
+  // Its height u after it starts: up in a blink, then sinking back.
+  jetH(u: f32, size: f32) -> f32 {
+    return 26.0 * size * (outCubic(u / 0.12) - inQuad((u - 0.15) / 0.28))
+  }
+  // The jet bouncing back up the middle once the crown has fallen: a mound
+  // heaving under it, a column shaded across and lit from the left, and a
+  // bulb on its tip until the bead pinches off.
+  jet(u: f32, size: f32, cs: list<color>, pass: i32, amp: f32, all: f32) {
+    ju = u - jetAt
+    h = jetH(ju, size)
+    if (ju >= 0.0 && h >= 0.8) {
+      top = floorY - h
+      halfOval(cx, floorY, 5.0 * size, 2.4 * size, glowInk(cs[5], pass, amp, 0.3, all))
+      halfOval(cx - 1.0, floorY, 3.0 * size, 1.6 * size, glowInk(cs[6], pass, amp, 0.5, all))
+      halfOval(cx - 0.5, floorY, 1.6 * size, 1.0 * size, glowInk(cs[7], pass, amp, 0.8, all))
+      column(top, h, -1.0, 1.0, glowInk(cs[4], pass, amp, 0.3, all))
+      column(top, h, -1.0, 0.72, glowInk(cs[5], pass, amp, 0.4, all))
+      column(top, h, -1.0, 0.3, glowInk(cs[7], pass, amp, 0.9, all))
+      column(top, h, -1.0, -0.5, glowInk(cs[6], pass, amp, 0.6, all))
+      if (ju < 0.12) {
+        oval(cx, top - 1.0, 1.7, 1.7, glowInk(cs[5], pass, amp, 0.5, all))
+        oval(cx - 0.3, top - 1.3, 1.1, 1.1, glowInk(cs[6], pass, amp, 0.7, all))
+        rect(cx - 1.0, floor(top - 2.0), 1.0, 1.0, glowInk(cs[7], pass, amp, 1.0, all))
+      }
+      if (pass == 1) { haze({cx, floorY - h * 0.5}, 7.0 + h * 0.3, cs[5], 0.3 * amp) }
+    }
+  }
+  // A band of the jet's column from q0 to q1 across it (-1 its left edge, 1
+  // its right), half-width 1.15 at the top flaring to 2.65 at the foot.
+  column(top: f32, h: f32, q0: f32, q1: f32, col: color) {
+    w1 = 1.15 + 1.5 * 0.125
+    w2 = 1.15 + 1.5 * 0.512
+    y1 = top + h * 0.5
+    y2 = top + h * 0.8
+    poly(col, cx + q0 * 1.15, top, cx + q1 * 1.15, top, cx + q1 * w1, y1, cx + q1 * w2, y2, cx + q1 * 2.65, floorY,
+         cx + q0 * 2.65, floorY, cx + q0 * w2, y2, cx + q0 * w1, y1)
+  }
+
+  // ---- drops ---------------------------------------------------------------------
+  // Every drop of the splash, those behind the middle (side -1) or in front
+  // (side 1): the first fine spray, the beads torn off the fingers, the lip
+  // coming apart, the heavy drops shed as the crown falls, the jet's bead.
+  drops(start: i32, u: f32, size: f32, fingers: i32, phi: f32, side: i32, cs: list<color>, pass: i32, amp: f32, all: f32) {
+    for i in 0..20 {
+      stream_push(hash((start ^ dropKey) + i * 0x9e3779b1))
+      a = 0.0 to 6.28318
+      v = 45.0 to 110.0
+      h0 = 1.0 to 6.0
+      up = 160.0 to 250.0
+      late = 0.0 to 0.04
+      big = chance(0.25)
+      stream_pop()
+      drop((start ^ dropKey) + (1000 + i) * 0x9e3779b1, late, cos(a) * 3.0 * size, sin(a) * 3.0 * size, h0, cos(a) * v * size, sin(a) * v * size, up, 1 + big, u, side, cs, pass, amp, all)
+    }
+    h = crownH(tear, size)
+    rt = lipR(tear, size)
+    for i in 0..fingers {
+      stream_push(hash((start ^ fingerKey) + i * 0x9e3779b1))
+      jit = -0.25 to 0.25
+      fl = 0.2 to 0.36
+      turn = -0.08 to 0.08
+      v = 32.0 to 80.0
+      up = 90.0 to 180.0
+      big = chance(0.3)
+      stream_pop()
+      fa = phi + tau * (float(i) + jit) / float(fingers)
+      fingerLen = h * fl
+      drop((start ^ dropKey) + (2000 + i) * 0x9e3779b1, tear, cos(fa) * (rt + fingerLen * 0.45), sin(fa) * rt, scallop(start, fa, h, phi) + fingerLen + 1.0,
+           cos(fa + turn) * v * size, sin(fa + turn) * v * size, up, 2 + big, u, side, cs, pass, amp, all)
+    }
+    for i in 0..6 {
+      stream_push(hash((start ^ dropKey) + (100 + i) * 0x9e3779b1))
+      t0 = 0.13 to 0.3
+      a = 0.0 to 6.28318
+      v = 15.0 to 45.0
+      k = 0.6 to 1.0
+      up = -10.0 to 45.0
+      big = chance(0.3)
+      stream_pop()
+      r = lipR(t0, size)
+      drop((start ^ dropKey) + (3000 + i) * 0x9e3779b1, t0, cos(a) * r, sin(a) * r, scallop(start, a, crownH(t0, size), phi) * k, cos(a) * v, sin(a) * v, up, 1 + big, u, side, cs, pass, amp, all)
+    }
+    r = lipR(0.3, size)
+    for i in 0..8 {
+      stream_push(hash((start ^ dropKey) + (200 + i) * 0x9e3779b1))
+      a = 0.0 to 6.28318
+      v = 15.0 to 40.0
+      h0 = 3.0 to 7.0
+      up = 30.0 to 80.0
+      big = chance(0.4)
+      stream_pop()
+      drop((start ^ dropKey) + (4000 + i) * 0x9e3779b1, 0.3, cos(a) * r, sin(a) * r, h0, cos(a) * v, sin(a) * v, up, 1 + big, u, side, cs, pass, amp, all)
+    }
+    stream_push(hash((start ^ dropKey) + 300 * 0x9e3779b1))
+    vx = -6.0 to 6.0
+    stream_pop()
+    drop((start ^ dropKey) + 5000 * 0x9e3779b1, jetAt + 0.12, 0.0, 0.2, jetH(0.12, size) + 1.0, vx, 0.0, 55.0, 3, u, side, cs, pass, amp, all)
+  }
+
+  // How long a drop launched h0 above the surface at vh upwards stays up.
+  landing(h0: f32, vh: f32) -> f32 {
+    return (vh + sqrt(vh * vh + 2.0 * grav * max(h0, 0.0))) / grav
+  }
+
+  // A drop launched at t0 and, if it is a big one, the tiny drops it throws up
+  // where it comes down.
+  drop(key: i32, t0: f32, x0: f32, z0: f32, h0: f32, vx: f32, vz: f32, vh: f32, s: i32, u: f32, side: i32, cs: list<color>, pass: i32, amp: f32, all: f32) {
+    flight(key, t0, x0, z0, h0, vx, vz, vh, s, u, side, cs, pass, amp, all)
+    if (s >= 2) {
+      fall = landing(h0, vh)
+      if (u - t0 > fall) {
+        e = (1.0 - exp(-drag * fall)) / drag
+        cnt = s - 1
+        for j in 0..cnt {
+          stream_push(hash(key + j * 0x9e3779b1))
+          a = 0.0 to 6.28318
+          v = 10.0 to 34.0
+          up = 55.0 to 110.0
+          stream_pop()
+          flight((key ^ 0x2c1b3c6d) + j, t0 + fall, x0 + vx * e, z0 + vz * e, 0.5, cos(a) * v, sin(a) * v, up, 1, u, side, cs, pass, amp, all)
+        }
+      }
+    }
+  }
+
+  // One drop: in the air a bead trailing a tail along its flight, then where
+  // it lands a white plink and a little ring. side 0 draws it wherever it is.
+  flight(key: i32, t0: f32, x0: f32, z0: f32, h0: f32, vx: f32, vz: f32, vh: f32, s: i32, u: f32, side: i32, cs: list<color>, pass: i32, amp: f32, all: f32) {
+    age = u - t0
+    if (age >= 0.0) {
+      fall = landing(h0, vh)
+      e = exp(-drag * min(age, fall))
+      x = x0 + vx * (1.0 - e) / drag
+      z = z0 + vz * (1.0 - e) / drag
+      mine = 0
+      if (side == 0) { mine = 1 }
+      if (side > 0 && z >= 0.0) { mine = 1 }
+      if (side < 0 && z < 0.0) { mine = 1 }
+      if (mine == 1) {
+        if (age < fall) {
+          bead(at(x, z, h0 + vh * age - 0.5 * grav * age * age), {vx * e, vz * e * sy - (vh - grav * age)}, s, cs, pass, amp, all)
+        } else {
+          since = age - fall
+          q = at(x, z, 0.0)
+          if (since < 0.14) {
+            kp = since / 0.14
+            if (kp < 0.5) { rect(floor(q.x), floor(q.y), 1.0, 1.0, glowInk(cs[7], pass, amp, 0.9, all)) }
+            if (s > 1) {
+              c = cs[6]
+              if (kp < 0.4) { c = cs[7] }
+              line({q.x, q.y - 1.0}, {q.x, q.y - 1.0 - 3.0 * (1.0 - kp)}, 1, glowInk(c, pass, amp, 0.6, all))
+            }
+            if (pass == 1) { haze(q, 4.0, cs[5], 0.3 * (1.0 - kp) * amp) }
+          }
+          ripple(x, z, 0.6, 2.0 + 1.8 * float(s), 0.34 + 0.1 * float(s), since, 0.95, 1, 3.0, 0.06, 0.0, key, 0, cs, pass, amp, all)
+        }
+      }
+    }
+  }
+
+  // A droplet at p moving at v px/s on the screen: s 1 a pixel, 2 a shaded
+  // 2x2, 3 a round bead with a highlight; a tail trails back along its
+  // motion, longer the faster it goes.
+  bead(p: vec2, v: vec2, s: i32, cs: list<color>, pass: i32, amp: f32, all: f32) {
+    sp = max(vec2.len(v), 1.0)
+    dir = v * (1.0 / sp)
+    tail = min(5.0, sp * 0.011)
+    if (tail >= 1.0) {
+      ta = p - dir * (tail + 1.0)
+      tb = p - dir * 1.2
+      tm = ta + (tb - ta) * 0.45
+      line(ta, tm, 1, glowInk(cs[3], pass, amp, 0.0, all))
+      tc = cs[4]
+      if (s > 1) { tc = cs[5] }
+      line(tm, tb, 1, glowInk(tc, pass, amp, 0.2, all))
+    }
+    if (s >= 3) {
+      oval(p, 1.75, 1.75, glowInk(cs[4], pass, amp, 0.3, all))
+      oval(p - {0.25, 0.25}, 1.15, 1.15, glowInk(cs[6], pass, amp, 0.6, all))
+      rect(floor(p.x - 0.7), floor(p.y - 0.7), 1.0, 1.0, glowInk(cs[7], pass, amp, 1.0, all))
+    } else if (s == 2) {
+      bx = floor(p.x)
+      by = floor(p.y)
+      rect(bx, by, 1.0, 1.0, glowInk(cs[7], pass, amp, 0.8, all))
+      rect(bx + 1.0, by, 1.0, 1.0, glowInk(cs[6], pass, amp, 0.5, all))
+      rect(bx, by + 1.0, 1.0, 1.0, glowInk(cs[5], pass, amp, 0.4, all))
+      rect(bx + 1.0, by + 1.0, 1.0, 1.0, glowInk(cs[4], pass, amp, 0.2, all))
+    } else {
+      c = cs[5]
+      if (sp > 160.0) { c = cs[6] }
+      rect(floor(p.x), floor(p.y), 1.0, 1.0, glowInk(c, pass, amp, 0.5, all))
+    }
+    if (pass == 1) { haze(p, 2.5 + float(s), cs[5], (0.1 + 0.05 * float(s)) * amp) }
+  }
+
+  // ---- the rest -------------------------------------------------------------------
+  // The sunk stone lets go of its air: three bubbles come up, swell and pop,
+  // each with a plink, a ring and two tiny drops.
+  bubbles(start: i32, u: f32, cs: list<color>, pass: i32, amp: f32, all: f32) {
+    for i in 0..3 {
+      stream_push(hash((start ^ bubbleKey) + i * 0x9e3779b1))
+      bx = -5.0 to 5.0
+      bz = -6.0 to 6.0
+      br = 1.3 to 2.3
+      stream_pop()
+      t0 = 0.85 + 0.2 * float(i)
+      g = (u - t0) / 0.2
+      p = at(bx, bz, 0.0)
+      if (g > 0.0 && g < 1.0) {
+        r = br * outBack(g)
+        for k in 0..6 {
+          q0 = 3.14159 + 3.14159 * float(k) / 6.0
+          q1 = 3.14159 + 3.14159 * float(k + 1) / 6.0
+          line(p + {cos(q0) * r, sin(q0) * r}, p + {cos(q1) * r, sin(q1) * r}, 1, glowInk(cs[6], pass, amp, 0.4, all))
+        }
+        rect(floor(p.x - r * 0.4), floor(p.y - r * 0.6), 1.0, 1.0, glowInk(cs[7], pass, amp, 0.8, all))
+        if (pass == 1) { haze({p.x, p.y - 1.0}, 4.0, cs[5], 0.25 * amp) }
+      }
+      if (g >= 1.0) {
+        pop = t0 + 0.2
+        since = u - pop
+        ripple(bx, bz, 1.0, 7.0, 0.6, since, 0.9, 1, 3.0, 0.0, 0.0, (start ^ bubbleKey) + i, 0, cs, pass, amp, all)
+        if (since < 0.14) {
+          if (since < 0.07) { rect(floor(p.x), floor(p.y), 1.0, 1.0, glowInk(cs[7], pass, amp, 0.9, all)) }
+          if (pass == 1) { haze(p, 4.0, cs[5], 0.3 * (1.0 - since / 0.14) * amp) }
+        }
+        for j in 0..2 {
+          stream_push(hash((start ^ bubbleKey ^ 0x2c1b) + (i * 2 + j) * 0x9e3779b1))
+          vx = -20.0 to 20.0
+          vz = -10.0 to 10.0
+          up = 50.0 to 90.0
+          stream_pop()
+          flight((start ^ bubbleKey) + 16 + i * 2 + j, pop, bx, bz, 1.0, vx, vz, up, 1, u, 0, cs, pass, amp, all)
+        }
+      }
+    }
+  }
+
+  // The hit: a flat white flash on the surface for a moment and a sparkle.
+  hitFlash(u: f32, cs: list<color>, pass: i32, amp: f32, all: f32) {
+    if (u >= 0.0 && u < 0.07) {
+      oval(cx, floorY, 10.0, 2.4, glowInk(cs[6], pass, amp, 1.0, all))
+      oval(cx, floorY, 6.0, 1.45, glowInk(cs[7], pass, amp, 1.0, all))
+      sparkle({cx, floorY - 3.0}, 5.0 * (1.0 - u / 0.07), cs, pass, amp, all)
+    }
+  }
+
+  // The stone, falling fast with a streak of air off it.
+  pebble(t: f32, hit: f32, pass: i32) {
+    if (pass == 0 && t < hit) {
+      v = t / hit
+      y = floorY - 56.0 + 56.0 * (0.4 * v + 0.6 * v * v)
+      line({cx, max(y - 12.0, 3.0)}, {cx, y - 3.0}, 1, ink(rock[4], 0.8))
+      oval(cx, y, 3.4, 3.2, rock[0])
+      oval(cx, y, 2.6, 2.4, rock[3])
+      oval(cx + 0.6, y + 0.6, 1.8, 1.6, rock[2])
+      oval(cx - 0.7, y - 0.7, 1.3, 1.1, rock[4])
+      rect(cx - 2.0, floor(y - 2.0), 1.0, 1.0, rock[5])
+    }
+  }
+
+  // Mist: soft puffs with no hard edge that swell, drift on a slowing push and
+  // thin away. Nine roll out low along the water at the hit, three puff off
+  // the jet's bead, four as it slumps. Over lava it is smoke.
+  mist(start: i32, u: f32, size: f32, cs: list<color>, steam: i32, pass: i32, amp: f32) {
+    for i in 0..16 {
+      stream_push(hash((start ^ mistKey) + i * 0x9e3779b1))
+      s1 = 0.0 to 1.0
+      s2 = 0.0 to 1.0
+      s3 = 0.0 to 1.0
+      s4 = 0.0 to 1.0
+      s5 = 0.0 to 1.0
+      s6 = 0.0 to 1.0
+      s7 = 0.0 to 1.0
+      sgn = -1.0
+      if (chance(0.5)) { sgn = 1.0 }
+      pale = chance(0.5)
+      stream_pop()
+      t0 = s7 * 0.1
+      x0 = sgn * lerp(4.0, 12.0, s1)
+      y0 = -lerp(1.0, 7.0, s2)
+      vx = sgn * lerp(25.0, 70.0, s3)
+      vy = -lerp(4.0, 16.0, s4)
+      r0 = lerp(2.5, 4.0, s5)
+      r1 = lerp(7.0, 11.0, s6)
+      life = lerp(0.9, 1.5, s6)
+      a0 = lerp(0.3, 0.42, s1)
+      col = cs[5]
+      if (pale == 1) { col = cs[6] }
+      if (i >= 9 && i < 12) {
+        t0 = jetAt + 0.12
+        x0 = lerp(-3.0, 3.0, s1)
+        y0 = -jetH(0.12, size) + lerp(2.0, 8.0, s2)
+        vx = lerp(-14.0, 14.0, s3)
+        vy = -lerp(4.0, 12.0, s4)
+        r0 = 2.0
+        r1 = lerp(4.0, 6.0, s6)
+        life = lerp(0.6, 1.0, s6)
+        a0 = 0.3
+        col = cs[6]
+      }
+      if (i >= 12) {
+        t0 = jetAt + 0.38
+        x0 = lerp(-6.0, 6.0, s1)
+        y0 = -lerp(1.0, 4.0, s2)
+        vx = lerp(-30.0, 30.0, s3)
+        vy = -lerp(3.0, 10.0, s4)
+        r0 = 2.5
+        r1 = lerp(6.0, 9.0, s6)
+        life = lerp(0.8, 1.2, s6)
+        a0 = 0.28
+        col = cs[5]
+      }
+      if (steam == 1) {
+        col = smoke[0]
+        if (pale == 1) { col = smoke[1] }
+      }
+      age = (u - t0) / life
+      if (age > 0.0 && age < 1.0) {
+        tt = u - t0
+        e = (1.0 - exp(-2.4 * tt)) / 2.4
+        x = x0 * size + vx * size * e
+        y = y0 + vy * e - 7.0 * (tt - e) / 2.4
+        r = r0 + (r1 - r0) * (1.0 - pow(1.0 - age, 2.2))
+        a = a0 * min(1.0, age / 0.12) * pow(1.0 - age, 1.4)
+        p = {cx + x, floorY + y}
+        if (pass == 0) {
+          haze(p, r, col, a * 1.3)
+          if (steam == 0) { haze(p - {r * 0.2, r * 0.32}, r * 0.55, cs[7], a * 0.35) }
+        } else if (steam == 0) {
+          haze(p, r * 1.5, cs[5], 0.16 * a / a0 * min(1.0, a0 * 3.0) * amp)
+        }
+      }
+    }
+  }
+
+  // Fine spray thrown up just after the hit: specks that slow, sink and fade.
+  flakes(start: i32, u: f32, size: f32, cs: list<color>, pass: i32, amp: f32, all: f32) {
+    tt = u - 0.04
+    if (tt > 0.0) {
+      for i in 0..20 {
+        stream_push(hash((start ^ flakeKey) + i * 0x9e3779b1))
+        a = 0.0 to 6.28318
+        lift = 6.0 to 15.0
+        v = 25.0 to 90.0
+        up = 30.0 to 100.0
+        life = 0.7 to 1.3
+        bright = chance(0.5)
+        stream_pop()
+        age = tt / life
+        if (age < 1.0) {
+          e = (1.0 - exp(-3.0 * tt)) / 3.0
+          x = (cos(a) * 9.0 + cos(a) * v * e) * size
+          y = sin(a) * 9.0 * sy - lift - up * e + 30.0 * tt * tt
+          c = cs[6]
+          if (bright == 1) { c = cs[7] }
+          rect(floor(cx + x), floor(floorY + y), 1.0, 1.0, glowInk(ink(c, 1.0 - age), pass, amp, 0.7, all))
+        }
+      }
+    }
+  }
+
+  // Glints winking over the crown as it goes up.
+  stars(start: i32, u: f32, cs: list<color>, pass: i32, amp: f32, all: f32) {
+    for i in 0..5 {
+      stream_push(hash((start ^ starKey) + i * 0x9e3779b1))
+      x = -13.0 to 13.0
+      y = 6.0 to 20.0
+      life = 0.25 to 0.55
+      big = 1.0 to 2.4
+      late = 0.0 to 0.15
+      stream_pop()
+      age = (u - 0.04 - late) / life
+      if (age > 0.0 && age < 1.0) {
+        sparkle({cx + x, floorY - y - 4.0 * age * life}, big * 1.6 * (1.0 - age), cs, pass, amp, all)
+      }
+    }
+  }
+
+  // A four-pointed sparkle of radius r with short diagonals.
+  sparkle(p: vec2, r: f32, cs: list<color>, pass: i32, amp: f32, all: f32) {
+    if (r >= 0.5) {
+      line({p.x - r, p.y}, {p.x + r, p.y}, 1, glowInk(cs[6], pass, amp, 1.0, all))
+      line({p.x, p.y - r}, {p.x, p.y + r}, 1, glowInk(cs[6], pass, amp, 1.0, all))
+      d = r * 0.45
+      if (d >= 1.0) {
+        line({p.x - d, p.y - d}, {p.x + d, p.y + d}, 1, glowInk(cs[5], pass, amp, 0.6, all))
+        line({p.x - d, p.y + d}, {p.x + d, p.y - d}, 1, glowInk(cs[5], pass, amp, 0.6, all))
+      }
+      rect(floor(p.x), floor(p.y), 1.0, 1.0, glowInk(cs[7], pass, amp, 1.0, all))
+    }
+  }
+
+  // Light only: a flash over the hit and a cool glow while the water settles.
+  lights(u: f32, size: f32, cs: list<color>, amp: f32) {
+    if (u >= 0.0) {
+      haze(at(0.0, 0.0, 6.0), 24.0 * size, cs[5], 0.6 * exp(-u / 0.12) * amp)
+      if (u < 0.08) { haze(at(0.0, 0.0, 4.0), 10.0, cs[7], 0.6 * amp) }
+      if (u < 1.25) { haze(at(0.0, 0.0, 2.0), 20.0 * size, cs[4], 0.3 * amp) }
+    }
+  }
+
+  // ---- toolkit ---------------------------------------------------------------------
+  // What to paint: pass 0 the colour; pass 1 the colour at alpha amp * k, k
+  // being how much this bit lights up (all: the least any bit lights up).
+  glowInk(c: color, pass: i32, amp: f32, k: f32, all: f32) -> color {
+    if (pass == 1) { return ink(c, amp * max(k, all)) }
+    return c
+  }
+  // The colour with its alpha scaled by a (clamped to 0..1).
+  ink(c: color, a: f32) -> color {
+    return color.set.a(c, int(clamp(a, 0.0, 1.0) * float(c.a)))
+  }
+  // A fixed pseudo-random number in 0..1 for key and index i.
+  rnd(key: i32, i: i32) -> f32 {
+    return float(hash(key + i * 0x9e3779b1) & 65535) / 65535.0
+  }
+  // A soft round glow: nested discs that add up to alpha a in the middle and
+  // fade out to radius r.
+  haze(p: vec2, r: f32, col: color, a: f32) {
+    for i in 0..4 {
+      k = 1.0 - float(i) * 0.24
+      oval(p, r * k, r * k, ink(col, a * (0.12 + 0.08 * float(i))))
+    }
+  }
+  // The upper half of an ellipse round (x, y).
+  halfOval(x: f32, y: f32, rx: f32, ry: f32, col: color) {
+    poly(col, x - rx, y, x - rx * 0.92, y - ry * 0.38, x - rx * 0.71, y - ry * 0.71, x - rx * 0.38, y - ry * 0.92, x, y - ry,
+         x + rx * 0.38, y - ry * 0.92, x + rx * 0.71, y - ry * 0.71, x + rx * 0.92, y - ry * 0.38, x + rx, y)
+  }
+  // Easing on u clamped to 0..1.
+  outCubic(x: f32) -> f32 {
+    c = clamp(x, 0.0, 1.0)
+    return 1.0 - (1.0 - c) * (1.0 - c) * (1.0 - c)
+  }
+  inQuad(x: f32) -> f32 {
+    c = clamp(x, 0.0, 1.0)
+    return c * c
+  }
+  outBack(x: f32) -> f32 {
+    c = clamp(x, 0.0, 1.0) - 1.0
+    return 1.0 + 2.70158 * c * c * c + 1.70158 * c * c
+  }
+  // Eight steps from a dark shade of the colour, through it, to white.
+  rampFrom(c: color) -> list<color> {
+    base = color.set.a(c, 255)
+    return [color.mix(#08060c, base, 0.2), color.mix(#08060c, base, 0.4), color.mix(#08060c, base, 0.62),
+            color.mix(#08060c, base, 0.84), base, color.mix(base, #fff8e8, 0.35), color.mix(base, #fff8e8, 0.68), #ffffff]
+  }
+}

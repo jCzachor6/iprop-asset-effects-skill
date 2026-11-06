@@ -1,0 +1,381 @@
+// Sword slash: a tilted crescent whips round in a frame or two, white on its
+// outer edge and thickest just behind the head; it holds for a beat, then
+// the tail chases the head round and the smear cools down the ramp as it
+// thins. A thinner echo follows just inside it, a dotted trace of the blade's
+// path lingers, the tip glints as the edge arrives, sparks fly off the tip
+// and bright shavings drift off the arc.
+//
+// Category: melee. One-shot. Canvas 136x104, origin 44,92 (the floor under
+// the swordsman's feet; the slash travels to the right, so mirror it for
+// swings to the left). Side view at the scale of a 24x38 character, light
+// from the upper left.
+// Frames: the seed rolls 12, 15 or 18 frames over 0.55-0.65 s; `frames`
+// retimes it. A quarter of the seeds swing upwards.
+// Light: the mask holds the bright bands of the smear, a light-only glow
+// riding the head of the swing, the glint, the sparks and the shavings;
+// power peaks at about 5 with the swing and falls away, sigma 9, blur 1.5.
+//   tint   transparent rolls the colour (50% steel, 15% crimson, 15% gold,
+//          10% void, 10% jade); a colour recolours the smear
+//
+// Variety: medium
+asset SwordSlash {
+  size 136x104
+  origin 44,92
+
+  // ---- the effect contract -------------------------------------------------
+  // 0 draws the hero frame; 1..frames play the effect; past its end a
+  // one-shot draws nothing.
+  input u32 frame = 0
+  // 0 rolls the frame count from the seed; 2..64 retimes the effect.
+  input u32 frames = 0
+  // 0 colour sprite, 1 light mask, 2 light under the pixels (the mask with
+  // power, sigma and blur applied, ready to add under the sprite).
+  input u32 renderPass = 0
+  // 0 keeps this frame's own value; above 0 forces it.
+  input f32 power = 0.0
+  input f32 sigma = 0.0
+  input f32 blur = 0.0
+  // Transparent rolls the colour from the seed; a colour recolours it.
+  input color tint = #00000000
+
+  // {frames, fps, loop (1) or one-shot (0), the frame drawn (0 when done)}
+  output rect anim
+  // {x: power, y: sigma, radius: blur} of this frame's light
+  output circle glow
+
+  // Seven steps from the deepest shade to white.
+  palette steel = [#212f6b, #2c58aa, #3a8bd8, #62c8f4, #b8c9e8, #e8f1ff, #ffffff]
+  palette crimson = [#3a0a14, #7a1424, #c02a2a, #ff5a3a, #ffb08a, #ffe6d8, #ffffff]
+  palette gold = [#3a2408, #7a4c10, #c08a1c, #f0c040, #ffe490, #fff6d8, #ffffff]
+  palette void = [#1e0c3a, #44167a, #7a2cc0, #b060f0, #dcb0ff, #f4e6ff, #ffffff]
+  palette jade = [#0a2a20, #145a40, #22966a, #3cd09a, #a8f0d0, #e6fff4, #ffffff]
+  // Hot metal for the sparks off the edge.
+  palette metal = [#f2561d, #ff8a2a, #ffe26b, #fff3a6]
+
+  const distribution looks = weighted {1: 50, 2: 15, 3: 15, 4: 10, 5: 10}
+  const f32 heroPhase = 0.12
+  const f32 sigmaMax = 12.0
+  const f32 floorY = 92.0
+  const f32 sweep = 0.06
+  const f32 grav = 500.0
+
+  // Stream keys, one per purpose; per-particle streams add i * 0x9e3779b1.
+  const i32 timeKey = 0x68e31da4
+  const i32 lookKey = 0x2f6b9a13
+  const i32 sparkKey = 0x2545f491
+  const i32 shaveKey = 0x3c6ef372
+
+  draw {
+    start = seed
+    // ---- timing: the seed's own frame count, or the one asked for ----------
+    stream_push(hash(start ^ timeKey))
+    rolled = pick(12, 15, 18)
+    dur = 0.55 to 0.65
+    stream_pop()
+    n = rolled
+    if (frames >= 2) { n = min(frames, 64) }
+    f = frame
+    if (f == 0) { f = clamp(int(heroPhase * float(n)) + 1, 1, n) }
+    t = (float(f) - 0.5) / float(n) * dur
+
+    // ---- the look: roll everything, whatever the inputs --------------------
+    stream_push(hash(start ^ lookKey))
+    kind = 1 to 5 with looks
+    radius = 36.0 to 44.0 with gaussian(mean = 41.0, sigma = 2.5)
+    squash = 0.5 to 0.68
+    rot = -0.5 to -0.26
+    a0 = -2.7 to -2.4
+    a1 = 0.8 to 1.1
+    wide = 10.0 to 13.0
+    rising = chance(0.25)
+    stream_pop()
+    cs = steel
+    if (kind == 2) { cs = crimson }
+    if (kind == 3) { cs = gold }
+    if (kind == 4) { cs = void }
+    if (kind == 5) { cs = jade }
+    if (tint.a != 0) { cs = rampFrom7(tint) }
+    hotMetal = 1
+    if (kind >= 4 || tint.a != 0) { hotMetal = 0 }
+    // A rising swing mirrors the ellipse top to bottom about its centre.
+    flip = 1.0
+    if (rising == 1) { flip = -1.0 }
+    shape = {squash * flip, rot * flip}
+    arc = {a0, a1}
+
+    // ---- this frame's light ------------------------------------------------
+    lp = (1.0 + 4.0 * max(0.0, 1.0 - t / 0.3)) * (1.0 - smoothstep(0.5 * dur, 0.85 * dur, t))
+    ls = 9.0
+    lb = 1.5
+    if (power > 0.0) { lp = power }
+    if (sigma > 0.0) { ls = sigma }
+    if (blur > 0.0) { lb = blur }
+    lp = clamp(lp, 0.0, 16.0)
+    ls = clamp(ls, 0.0, sigmaMax)
+    lb = clamp(lb, 0.0, 4.0)
+    shown = f
+    if (f > n) {
+      shown = 0
+      lp = 0.0
+    }
+    anim = {float(n), float(n) / dur, 0.0, float(shown)}
+    glow = {lp, ls, lb}
+
+    // ---- the passes (keep as is) -------------------------------------------
+    if (f <= n) {
+      if (renderPass == 1) {
+        layer mask1(alpha = surface.source_over) { scene(start, t, dur, cs, hotMetal, radius, shape, arc, wide, 1, 1.0) }
+        surface.paint(mask1, blend = surface.source_over)
+      } else if (renderPass == 2) {
+        if (lp > 0.0) {
+          k = max(1, int(ceil(lp)))
+          layer mask2(alpha = surface.source_over) { scene(start, t, dur, cs, hotMetal, radius, shape, arc, wide, 1, lp / float(k)) }
+          pool = mask2.blur(ls)
+          bloom = mask2.blur(lb)
+          for i in 0..k { surface.paint(pool, blend = surface.source_over) }
+          for i in 0..k { surface.paint(bloom, blend = surface.source_over) }
+        }
+      } else {
+        layer sprite(alpha = surface.source_over) { scene(start, t, dur, cs, hotMetal, radius, shape, arc, wide, 0, 1.0) }
+        surface.paint(sprite, blend = surface.source_over)
+      }
+    }
+  }
+
+  // Everything at time t, back to front. pass 0 paints colour; pass 1 paints
+  // only what emits light, in its light colour, alpha scaled by amp.
+  scene(start: i32, t: f32, dur: f32, cs: list<color>, hotMetal: i32, radius: f32, shape: vec2, arc: vec2, wide: f32, pass: i32, amp: f32) {
+    c = {50.0, floorY - 26.0}
+    span = arc.y - arc.x
+    // Light only: a glow riding the head of the swing.
+    if (pass == 1 && t < 0.3) {
+      h = onArc(c, radius - 4.0, arc.x + span * easeOutExpo(clamp(t / sweep, 0.0, 1.0)), shape)
+      haze(h, 12.0, cs[3], 0.55 * (1.0 - t / 0.3) * amp)
+    }
+    // The echo: a thinner smear just inside, a beat behind, never white.
+    echo = {arc.x + span * 0.1, arc.y - span * 0.15 / 3.5}
+    slash(t - 0.017, c, radius * 33.0 / 42.0, shape, echo, radius * 4.5 / 42.0, {0.03, 0.2}, cs, 6, pass, amp)
+    slash(t, c, radius, shape, arc, wide, {0.06, 0.24}, cs, 7, pass, amp)
+    shavings(start, t, dur, cs, c, radius, shape, arc, pass, amp)
+    // The tip, a little inside the edge, and the way the blade was going.
+    tip = onArc(c, radius - wide * 0.3, arc.y, shape)
+    ahead = onArc(c, radius - wide * 0.3, arc.y + 0.05, shape) - tip
+    sparks(start, t, cs, hotMetal, tip, atan2(ahead), pass, amp)
+    // The tip glints as the edge arrives.
+    g = t - sweep * 0.6
+    if (g > 0.0 && g < 0.22) {
+      size = 9.0 * easeOutBack(min(1.0, g / 0.05)) * (1.0 - g / 0.22)
+      sparkle(tip, size, cs, pass, amp)
+    }
+  }
+
+  // One smear of the swing: the head races round (easing out), holds, then
+  // the tail chases it. A dotted trace stays where the smear has gone.
+  // timing = {hold, trail}; n = how many tones of the ramp it may use.
+  slash(u: f32, c: vec2, radius: f32, shape: vec2, arc: vec2, wide: f32, timing: vec2, cs: list<color>, n: i32, pass: i32, amp: f32) {
+    if (u >= 0.0) {
+      span = arc.y - arc.x
+      hold = timing.x
+      trail = timing.y
+      head = easeOutExpo(clamp(u / sweep, 0.0, 1.0))
+      tail = smoothstep(sweep + hold, sweep + hold + trail, u)
+      age = clamp(u / (sweep + hold + trail), 0.0, 1.0)
+      if (tail < 1.0) { crescent(c, radius, shape, arc.x + span * tail, span * (head - tail), wide * (1.0 - tail * 0.55), age, cs, n, pass, amp) }
+      th = 0.7 * (1.0 - clamp((u - sweep - hold) / (trail + 0.2), 0.0, 1.0))
+      if (pass == 0 && tail > 0.02 && th > 0.0) {
+        segs = max(2, int(span * tail * radius / 3.0))
+        for s in 0..segs {
+          k0 = tail * float(s) / float(segs)
+          k1 = tail * float(s + 1) / float(segs)
+          line(onArc(c, radius - 0.5, arc.x + span * k0, shape), onArc(c, radius - 0.5, arc.x + span * k1, shape), 1, ink(cs[1], th * (0.4 + 0.6 * k1)))
+        }
+      }
+    }
+  }
+
+  // The smear from angle ta over len radians: thickest just behind the
+  // leading edge, a hair at the tail; the brightest step on the outer rim
+  // while it is young, darker steps inward, with age and towards the tail;
+  // the tail fades out.
+  crescent(c: vec2, radius: f32, shape: vec2, ta: f32, len: f32, wide: f32, age: f32, cs: list<color>, n: i32, pass: i32, amp: f32) {
+    if (abs(len) >= 0.02 && wide >= 0.3) {
+      segs = clamp(int(abs(len) * radius / 2.5), 3, 40)
+      for s in 0..segs {
+        v0 = float(s) / float(segs)
+        v1 = float(s + 1) / float(segs)
+        w0 = wide * pow(sin(3.14159 * pow(v0, 2.2)), 0.6)
+        w1 = wide * pow(sin(3.14159 * pow(v1, 2.2)), 0.6)
+        if (w0 + w1 > 0.7) {
+          q0 = ta + len * v0
+          q1 = ta + len * v1
+          vm = (v0 + v1) * 0.5
+          fade = min(1.0, vm / 0.4)
+          for band in 0..3 {
+            b0 = 0.0
+            b1 = 0.22
+            if (band == 1) {
+              b0 = 0.22
+              b1 = 0.6
+            }
+            if (band == 2) {
+              b0 = 0.6
+              b1 = 1.0
+            }
+            ci = int(floor((b0 + b1) * 0.5 * float(n - 1) * 0.75 + age * 2.4 - vm * 0.8 + 0.9))
+            if (band == 0 && age < 0.5) { ci = 0 }
+            col = cs[n - 1 - clamp(ci, 0, n - 1)]
+            a = fade
+            if (pass == 1) {
+              a = 0.0
+              if (band < 2) { a = fade * (1.0 - age) * amp }
+            }
+            if (a > 0.0) {
+              p0 = onArc(c, radius - b0 * w0, q0, shape)
+              p1 = onArc(c, radius - b0 * w1, q1, shape)
+              p2 = onArc(c, radius - b1 * w1, q1, shape)
+              p3 = onArc(c, radius - b1 * w0, q0, shape)
+              poly(ink(col, a), p0.x, p0.y, p1.x, p1.y, p2.x, p2.y, p3.x, p3.y)
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // A four-pointed glint: thin rays round a white heart.
+  sparkle(p: vec2, size: f32, cs: list<color>, pass: i32, amp: f32) {
+    if (size >= 1.0) {
+      k = 1.0
+      if (pass == 1) { k = amp }
+      x = floor(p.x) + 0.5
+      y = floor(p.y) + 0.5
+      line({x - size, y}, {x + size, y}, 1, ink(cs[3], k))
+      line({x, y - size}, {x, y + size}, 1, ink(cs[3], k))
+      line({x - size * 0.5, y}, {x + size * 0.5, y}, 1, ink(cs[5], k))
+      line({x, y - size * 0.5}, {x, y + size * 0.5}, 1, ink(cs[5], k))
+      if (size >= 4.0) {
+        rect(x - 1.5, y - 0.5, 3.0, 1.0, ink(cs[6], k))
+        rect(x - 0.5, y - 1.5, 1.0, 3.0, ink(cs[6], k))
+      } else { rect(x - 0.5, y - 0.5, 1.0, 1.0, ink(cs[6], k)) }
+    }
+  }
+
+  // Sparks off the edge where it stops: hot streaks along the blade's way,
+  // falling as they cool.
+  sparks(start: i32, t: f32, cs: list<color>, hotMetal: i32, tip: vec2, way: f32, pass: i32, amp: f32) {
+    age = t - sweep
+    if (age > 0.0) {
+      for i in 0..10 {
+        stream_push(hash((start ^ sparkKey) + i * 0x9e3779b1))
+        spread = -0.5 to 0.5
+        v = 150.0 to 400.0
+        life = 0.12 to 0.35
+        stream_pop()
+        if (age < life) {
+          a = way + spread
+          vel = {cos(a) * v, sin(a) * v}
+          p = fly(tip, vel, age, 5.0)
+          pb = fly(tip, vel, max(0.0, age - 0.02), 5.0)
+          u = age / life
+          col = metal[3]
+          if (u > 0.3) { col = metal[2] }
+          if (u > 0.6) { col = metal[1] }
+          if (u > 0.85) { col = metal[0] }
+          if (hotMetal == 0) {
+            col = cs[6]
+            if (u > 0.3) { col = cs[5] }
+            if (u > 0.6) { col = cs[4] }
+            if (u > 0.85) { col = cs[3] }
+          }
+          if (pass == 0) { line(pb, p, 1, col) }
+          else { line(pb, p, 1, ink(col, (1.0 - u) * amp)) }
+        }
+      }
+    }
+  }
+
+  // Bright shavings flung off the arc as the edge passes: single pixels
+  // drifting outwards and fading.
+  shavings(start: i32, t: f32, dur: f32, cs: list<color>, c: vec2, radius: f32, shape: vec2, arc: vec2, pass: i32, amp: f32) {
+    age = t - sweep
+    if (age > 0.0) {
+      for i in 0..16 {
+        stream_push(hash((start ^ shaveKey) + i * 0x9e3779b1))
+        along = 0.3 to 1.0
+        v = 30.0 to 100.0
+        life = 0.45 to 0.95
+        pale = chance(0.5)
+        stream_pop()
+        // The first shaving lasts to the end, so the last frame still glitters.
+        life = life * (dur - sweep)
+        if (i == 0) { life = dur - sweep }
+        if (age < life) {
+          p0 = onArc(c, radius, arc.x + (arc.y - arc.x) * along, shape)
+          out = vec2.normalize(p0 - c)
+          p = fly(p0, out * v + {0.0, -10.0}, age, 3.0)
+          col = cs[4]
+          if (pale == 1) { col = cs[5] }
+          a = 0.6 * (1.0 - smoothstep(0.6, 1.0, age / life))
+          if (pass == 1) { a = a * amp }
+          pixel(int(p.x), int(p.y), ink(col, a))
+        }
+      }
+    }
+  }
+
+  // A point on the slash's tilted ellipse: radius r at angle a, squashed by
+  // shape.x and turned by shape.y.
+  onArc(c: vec2, r: f32, a: f32, shape: vec2) -> vec2 {
+    lx = cos(a) * r
+    ly = sin(a) * r * shape.x
+    return {c.x + lx * cos(shape.y) - ly * sin(shape.y), c.y + lx * sin(shape.y) + ly * cos(shape.y)}
+  }
+
+  // Where a particle launched from p0 at v (px/s) is after t seconds, with
+  // gravity, drag and a floor it bounces off, stepped at 120 Hz.
+  fly(p0: vec2, v: vec2, t: f32, drag: f32) -> vec2 {
+    p = p0
+    u = v
+    dt = 1.0 / 120.0
+    steps = int(t * 120.0)
+    for i in 0..steps {
+      u = {u.x * (1.0 - drag * dt), u.y * (1.0 - drag * dt) + grav * dt}
+      p = p + u * dt
+      if (p.y > floorY - 1.0) {
+        p = {p.x, floorY - 1.0}
+        u = {u.x * 0.7, -abs(u.y) * 0.35}
+      }
+    }
+    return p + u * (t - float(steps) * dt)
+  }
+
+  // ---- toolkit ---------------------------------------------------------------
+  // A soft round glow for the light mask: nested discs that add up to alpha a
+  // in the middle and fade out to radius r, so even the bloom stays soft.
+  haze(p: vec2, r: f32, col: color, a: f32) {
+    for i in 0..4 {
+      k = 1.0 - float(i) * 0.24
+      oval(p, r * k, r * k, ink(col, a * (0.12 + 0.08 * float(i))))
+    }
+  }
+  // The colour with its alpha scaled by a (clamped to 0..1).
+  ink(c: color, a: f32) -> color {
+    return color.set.a(c, int(clamp(a, 0.0, 1.0) * float(c.a)))
+  }
+  // Fast out, then settling: 0 at 0, 1 at 1.
+  easeOutExpo(x: f32) -> f32 {
+    if (x >= 1.0) { return 1.0 }
+    return 1.0 - pow(2.0, -10.0 * x)
+  }
+  // Overshoots a little before settling at 1.
+  easeOutBack(x: f32) -> f32 {
+    y = x - 1.0
+    return 1.0 + 2.70158 * y * y * y + 1.70158 * y * y
+  }
+  // Seven steps from a dark shade of the colour, through it, to white.
+  rampFrom7(c: color) -> list<color> {
+    base = color.set.a(c, 255)
+    return [color.mix(#08060c, base, 0.3), color.mix(#08060c, base, 0.66), color.mix(#08060c, base, 0.88),
+            base, color.mix(base, #fff8e8, 0.45), color.mix(base, #fff8e8, 0.78), #ffffff]
+  }
+}

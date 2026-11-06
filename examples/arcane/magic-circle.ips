@@ -1,0 +1,359 @@
+// Magic circle: a circle draws itself on the floor. A bright spark runs
+// round the outer ring leaving it behind, a second spark draws the inner ring
+// the other way, runes blink on between the rings as the spark passes them,
+// and a star of straight lines strikes across the middle. Then it fires: the
+// whole circle flashes white, a pillar of light shoots up out of it and motes
+// stream up while the circle turns; then it fades from the outside in and
+// the runes blink out.
+//
+// Category: arcane. One-shot. Canvas 128x112, origin 64,88 (the floor at the
+// circle's centre). Side view a little from above, so the circle lies flat as
+// an ellipse a third as tall as it is wide.
+// Frames: the seed rolls 21, 27 or 33 frames over 1.4-1.8 s; `frames`
+// retimes it. The effect is choreographed over 1.6 s and played to fit.
+// Light: the mask holds the drawn lines, the sparks, the runes, the pillar
+// and the motes; power sits round 1.8 while it draws, flashes to about 6 as
+// it fires and fades with the circle, sigma 9, blur 1.5.
+//   tint   transparent rolls the colour (40% arcane violet, 20% holy gold,
+//          15% infernal red, 15% frost cyan, 10% emerald); a colour recolours
+//          the circle
+//
+// Variety: medium
+asset MagicCircle {
+  size 128x112
+  origin 64,88
+
+  // ---- the effect contract -------------------------------------------------
+  // 0 draws the hero frame; 1..frames play the effect; past its end a
+  // one-shot draws nothing.
+  input u32 frame = 0
+  // 0 rolls the frame count from the seed; 2..64 retimes the effect.
+  input u32 frames = 0
+  // 0 colour sprite, 1 light mask, 2 light under the pixels (the mask with
+  // power, sigma and blur applied, ready to add under the sprite).
+  input u32 renderPass = 0
+  // 0 keeps this frame's own value; above 0 forces it.
+  input f32 power = 0.0
+  input f32 sigma = 0.0
+  input f32 blur = 0.0
+  // Transparent rolls the colour from the seed; a colour recolours it.
+  input color tint = #00000000
+
+  // {frames, fps, loop (1) or one-shot (0), the frame drawn (0 when done)}
+  output rect anim
+  // {x: power, y: sigma, radius: blur} of this frame's light
+  output circle glow
+
+  palette arcane = [#0e0718, #261041, #4a1c7c, #7a34c0, #a95cf0, #cf94ff, #efd2ff, #ffffff]
+  palette holy = [#3b1d2a, #7a3a2c, #c4652e, #f0a040, #ffd25e, #fff0a0, #fffbe0, #ffffff]
+  palette infernal = [#18060a, #3e0c16, #701624, #a82632, #e0463e, #ff8a6a, #ffd0b8, #ffffff]
+  palette frost = [#151a3d, #212f6b, #2c58aa, #3a8bd8, #62c8f4, #a6ecff, #dcfbff, #ffffff]
+  palette emerald = [#05140c, #0c3020, #145a34, #22904c, #3cc864, #8aeea0, #d2ffd8, #ffffff]
+
+  const distribution looks = weighted {1: 40, 2: 20, 3: 15, 4: 15, 5: 10}
+  const f32 heroPhase = 0.5
+  const f32 sigmaMax = 12.0
+  const f32 cx = 64.0
+  const f32 floorY = 88.0
+  const f32 tau = 6.28318
+  const f32 sy = 0.32
+  // The choreography, in seconds of the natural timeline.
+  const f32 natural = 1.6
+  const f32 fire = 0.66
+  const f32 fadeAt = 1.15
+
+  // Stream keys, one per purpose; per-particle streams add i * 0x9e3779b1.
+  const i32 timeKey = 0x68e31da4
+  const i32 lookKey = 0x2f6b9a13
+  const i32 runeKey = 0x1b873593
+  const i32 moteKey = 0x2545f491
+
+  draw {
+    start = seed
+    // ---- timing: the seed's own frame count, or the one asked for ----------
+    stream_push(hash(start ^ timeKey))
+    rolled = pick(21, 27, 33)
+    dur = 1.4 to 1.8
+    stream_pop()
+    n = rolled
+    if (frames >= 2) { n = min(frames, 64) }
+    f = frame
+    if (f == 0) { f = clamp(int(heroPhase * float(n)) + 1, 1, n) }
+    t = (float(f) - 0.5) / float(n) * natural
+
+    // ---- the look: roll everything, whatever the inputs --------------------
+    stream_push(hash(start ^ lookKey))
+    kind = 1 to 5 with looks
+    radius = 40.0 to 50.0
+    points = pick(5, 6, 6, 8)
+    runes = 10 to 16
+    turn = 1.0
+    if (chance(0.5)) { turn = -1.0 }
+    q0 = 0.0 to 6.28318
+    stream_pop()
+    cs = arcane
+    if (kind == 2) { cs = holy }
+    if (kind == 3) { cs = infernal }
+    if (kind == 4) { cs = frost }
+    if (kind == 5) { cs = emerald }
+    if (tint.a != 0) { cs = rampFrom(tint) }
+    look = {radius, q0}
+
+    // ---- this frame's light ------------------------------------------------
+    lp = 1.8 * smoothstep(0.0, 0.2, t)
+    if (t > fire) { lp = lp + 3.6 * exp(-(t - fire) / 0.12) + 0.8 * exp(-(t - fire) / 0.5) }
+    lp = lp * (1.0 - smoothstep(fadeAt, natural - 0.08, t))
+    ls = 9.0
+    lb = 1.5
+    if (power > 0.0) { lp = power }
+    if (sigma > 0.0) { ls = sigma }
+    if (blur > 0.0) { lb = blur }
+    lp = clamp(lp, 0.0, 16.0)
+    ls = clamp(ls, 0.0, sigmaMax)
+    lb = clamp(lb, 0.0, 4.0)
+    shown = f
+    if (f > n) {
+      shown = 0
+      lp = 0.0
+    }
+    anim = {float(n), float(n) / dur, 0.0, float(shown)}
+    glow = {lp, ls, lb}
+
+    // ---- the passes (keep as is) -------------------------------------------
+    if (f <= n) {
+      if (renderPass == 1) {
+        layer mask1(alpha = surface.source_over) { scene(start, t, cs, look, points, runes, turn, 1, 1.0) }
+        surface.paint(mask1, blend = surface.source_over)
+      } else if (renderPass == 2) {
+        if (lp > 0.0) {
+          k = max(1, int(ceil(lp)))
+          layer mask2(alpha = surface.source_over) { scene(start, t, cs, look, points, runes, turn, 1, lp / float(k)) }
+          pool = mask2.blur(ls)
+          bloom = mask2.blur(lb)
+          for i in 0..k { surface.paint(pool, blend = surface.source_over) }
+          for i in 0..k { surface.paint(bloom, blend = surface.source_over) }
+        }
+      } else {
+        layer sprite(alpha = surface.source_over) { scene(start, t, cs, look, points, runes, turn, 0, 1.0) }
+        surface.paint(sprite, blend = surface.source_over)
+      }
+    }
+  }
+
+  // Everything at time t. The circle lies on the floor, so it all goes
+  // behind the pillar and the motes. pass 0 paints colour; pass 1 paints only
+  // what emits light, alpha scaled by amp.
+  scene(start: i32, t: f32, cs: list<color>, look: vec2, points: i32, runes: i32, turn: f32, pass: i32, amp: f32) {
+    radius = look.x
+    // The circle turns slowly once it has fired.
+    spin = look.y + turn * 0.5 * max(0.0, t - fire)
+    // It flashes white as it fires, then fades out from the rim in.
+    flash = 0.0
+    if (t > fire) { flash = exp(-(t - fire) / 0.1) }
+    fade = 1.0 - smoothstep(fadeAt, natural - 0.06, t)
+    outerK = fade * (1.0 - smoothstep(fadeAt, fadeAt + 0.2, t))
+    // The outer ring, drawn by a spark running round it.
+    drawn = easeInOut(seg(t, 0.0, 0.45))
+    ring(radius, spin, turn, drawn, 2, cs, flash, max(fade, outerK), pass, amp)
+    ring(radius - 3.0, spin, turn, drawn, 1, cs, flash, fade, pass, amp)
+    // The inner ring, the other way.
+    inner = easeInOut(seg(t, 0.12, 0.5))
+    ring(radius * 0.62, spin, -turn, inner, 1, cs, flash, fade, pass, amp)
+    // Runes between the rings, blinking on as the spark passes.
+    runeBand(start, t, cs, radius, spin, turn, drawn, runes, flash, fade, pass, amp)
+    // The star across the middle, struck line by line.
+    star(t, cs, radius * 0.62, spin, points, flash, fade, pass, amp)
+    if (t > fire) {
+      pillar(t, cs, radius, fade, pass, amp)
+      motes(start, t, cs, radius, fade, pass, amp)
+    }
+    // The drawing sparks.
+    if (drawn > 0.0 && drawn < 1.0) { spark(onFloor(radius, spin + turn * tau * drawn), cs, pass, amp) }
+    if (inner > 0.0 && inner < 1.0) { spark(onFloor(radius * 0.62, spin - turn * tau * inner), cs, pass, amp) }
+  }
+
+  // A point on the floor at radius r and angle q round the circle's centre.
+  onFloor(r: f32, q: f32) -> vec2 {
+    return {cx + cos(q) * r, floorY - 1.0 + sin(q) * r * sy}
+  }
+
+  // A ring of the circle, drawn round from angle spin in direction dir up to
+  // `drawn` of a turn; thick 2 draws a bright double line.
+  ring(r: f32, spin: f32, dir: f32, drawn: f32, thick: i32, cs: list<color>, flash: f32, fade: f32, pass: i32, amp: f32) {
+    segs = int(48.0 * drawn)
+    col = cs[5]
+    if (thick == 2) { col = cs[6] }
+    if (flash > 0.4) { col = cs[7] }
+    k = fade
+    if (pass == 1) { k = (0.55 + 0.45 * flash) * fade * amp }
+    for s in 0..segs {
+      a0 = spin + dir * tau * float(s) / 48.0
+      a1 = spin + dir * tau * float(s + 1) / 48.0
+      line(onFloor(r, a0), onFloor(r, a1), 1, ink(col, k))
+      if (thick == 2 && pass == 0) { line(onFloor(r + 1.0, a0), onFloor(r + 1.0, a1), 1, ink(cs[3], k)) }
+    }
+  }
+
+  // Runes in the band between the outer rings: tiny glyphs on the floor,
+  // each lit when the drawing spark has passed it, glowing white as the
+  // circle fires, and blinking out one by one as it fades.
+  runeBand(start: i32, t: f32, cs: list<color>, radius: f32, spin: f32, turn: f32, drawn: f32, runes: i32, flash: f32, fade: f32, pass: i32, amp: f32) {
+    for i in 0..runes {
+      stream_push(hash((start ^ runeKey) + i * 0x9e3779b1))
+      glyph = 0 to 4
+      out = 0.0 to 1.0
+      stream_pop()
+      at = (float(i) + 0.5) / float(runes)
+      if (at < drawn && t < fadeAt + 0.35 * out) {
+        p = onFloor(radius - 7.0, spin + turn * tau * at)
+        x = floor(p.x)
+        y = floor(p.y)
+        col = cs[5]
+        if (flash > 0.3) { col = cs[7] }
+        k = 1.0
+        if (pass == 1) { k = (0.6 + 0.4 * flash) * amp }
+        c = ink(col, k)
+        // Five glyphs, three pixels wide and three tall.
+        if (glyph == 0) {
+          rect(x - 1.0, y - 1.0, 3.0, 1.0, c)
+          rect(x, y, 1.0, 2.0, c)
+        }
+        if (glyph == 1) {
+          rect(x - 1.0, y - 1.0, 1.0, 3.0, c)
+          rect(x, y, 2.0, 1.0, c)
+        }
+        if (glyph == 2) {
+          rect(x - 1.0, y + 1.0, 3.0, 1.0, c)
+          rect(x, y - 1.0, 1.0, 2.0, c)
+        }
+        if (glyph == 3) {
+          rect(x - 1.0, y - 1.0, 1.0, 1.0, c)
+          rect(x + 1.0, y - 1.0, 1.0, 1.0, c)
+          rect(x, y, 1.0, 2.0, c)
+        }
+        if (glyph == 4) {
+          rect(x - 1.0, y, 3.0, 1.0, c)
+          rect(x, y - 1.0, 1.0, 3.0, c)
+        }
+      }
+    }
+  }
+
+  // The star across the middle: lines from each point to the point two (or
+  // three) on, struck one after another while the circle draws.
+  star(t: f32, cs: list<color>, r: f32, spin: f32, points: i32, flash: f32, fade: f32, pass: i32, amp: f32) {
+    skip = 2
+    if (points == 8) { skip = 3 }
+    col = cs[4]
+    if (flash > 0.4) { col = cs[7] }
+    k = fade
+    if (pass == 1) { k = (0.4 + 0.6 * flash) * fade * amp }
+    for i in 0..points {
+      u = seg(t, 0.3 + 0.32 * float(i) / float(points), 0.3 + 0.32 * float(i + 1) / float(points))
+      if (u > 0.0) {
+        a = onFloor(r, spin + tau * float(i) / float(points))
+        b = onFloor(r, spin + tau * float((i + skip) % points) / float(points))
+        line(a, a + (b - a) * u, 1, ink(col, k))
+      }
+    }
+  }
+
+  // The pillar of light shooting up out of the circle as it fires: a bright
+  // core and pale edges, fading up into the air and thinning away.
+  pillar(t: f32, cs: list<color>, radius: f32, fade: f32, pass: i32, amp: f32) {
+    g = t - fire
+    rise = 1.0 - exp(-g / 0.06)
+    life = exp(-g / 0.35) * fade
+    if (life > 0.02) {
+      h = 80.0 * rise
+      w = radius * 0.62 * (0.75 + 0.25 * exp(-g / 0.2))
+      for band in 0..8 {
+        // Slices up the pillar, thinner and fainter towards the top.
+        v0 = float(band) / 8.0
+        v1 = float(band + 1) / 8.0
+        y0 = floorY - 1.0 - h * v0
+        y1 = floorY - 1.0 - h * v1
+        w0 = w * (1.0 - 0.35 * v0)
+        w1 = w * (1.0 - 0.35 * v1)
+        a = life * (1.0 - v0 * 0.85)
+        if (pass == 0) {
+          slab(y0, y1, w0, w1, ink(cs[5], 0.28 * a))
+          slab(y0, y1, w0 * 0.45, w1 * 0.45, ink(cs[6], 0.45 * a))
+          slab(y0, y1, max(0.6, w0 * 0.12), max(0.6, w1 * 0.12), ink(cs[7], 0.8 * a))
+          line({cx - w0, y0}, {cx - w1, y1}, 1, ink(cs[6], 0.6 * a))
+          line({cx + w0 - 1.0, y0}, {cx + w1 - 1.0, y1}, 1, ink(cs[6], 0.6 * a))
+        } else {
+          slab(y0, y1, w0 * 0.5, w1 * 0.5, ink(cs[5], 0.5 * a * amp))
+        }
+      }
+    }
+  }
+
+  // A slice of the pillar from y0 (half width w0) up to y1 (half width w1).
+  slab(y0: f32, y1: f32, w0: f32, w1: f32, col: color) {
+    poly(col, cx - w0, y0, cx + w0, y0, cx + w1, y1, cx - w1, y1)
+  }
+
+  // Motes streaming up out of the circle once it has fired, swaying, fading
+  // as they climb.
+  motes(start: i32, t: f32, cs: list<color>, radius: f32, fade: f32, pass: i32, amp: f32) {
+    for i in 0..20 {
+      stream_push(hash((start ^ moteKey) + i * 0x9e3779b1))
+      late = 0.0 to 0.45
+      q = 0.0 to 6.28318
+      far = 0.2 to 0.95
+      rise = 30.0 to 70.0
+      life = 0.4 to 0.8
+      white = chance(0.35)
+      sway = 0.0 to 6.28318
+      stream_pop()
+      age = t - fire - late
+      if (age > 0.0 && age < life) {
+        base = onFloor(radius * far, q)
+        p = {base.x + 1.5 * sin(age * 9.0 + sway), base.y - rise * age}
+        u = age / life
+        col = cs[6]
+        if (white == 1) { col = cs[7] }
+        k = (1.0 - u) * max(fade, 0.3)
+        if (pass == 1) { k = k * amp }
+        line(p, p + {0.0, 2.0}, 1, ink(cs[4], k * 0.6))
+        rect(floor(p.x), floor(p.y), 1.0, 1.0, ink(col, k))
+      }
+    }
+  }
+
+  // The spark that draws a ring: a white cross with a hot halo.
+  spark(p: vec2, cs: list<color>, pass: i32, amp: f32) {
+    x = floor(p.x)
+    y = floor(p.y)
+    k = 1.0
+    if (pass == 1) {
+      k = amp
+      oval(p, 4.0, 4.0, ink(cs[5], 0.5 * amp))
+    }
+    rect(x - 2.0, y, 5.0, 1.0, ink(cs[6], k))
+    rect(x, y - 2.0, 1.0, 5.0, ink(cs[6], k))
+    rect(x - 1.0, y, 3.0, 1.0, ink(cs[7], k))
+    rect(x, y - 1.0, 1.0, 3.0, ink(cs[7], k))
+  }
+
+  // ---- toolkit ---------------------------------------------------------------
+  // The colour with its alpha scaled by a (clamped to 0..1).
+  ink(c: color, a: f32) -> color {
+    return color.set.a(c, int(clamp(a, 0.0, 1.0) * float(c.a)))
+  }
+  // How far t is from a to b, clamped to 0..1.
+  seg(t: f32, a: f32, b: f32) -> f32 {
+    return clamp((t - a) / (b - a), 0.0, 1.0)
+  }
+  // Slow at both ends.
+  easeInOut(x: f32) -> f32 {
+    return x * x * (3.0 - 2.0 * x)
+  }
+  // Eight steps from a dark shade of the colour, through it, to white.
+  rampFrom(c: color) -> list<color> {
+    base = color.set.a(c, 255)
+    return [color.mix(#08060c, base, 0.2), color.mix(#08060c, base, 0.4), color.mix(#08060c, base, 0.62),
+            color.mix(#08060c, base, 0.84), base, color.mix(base, #fff8e8, 0.35), color.mix(base, #fff8e8, 0.68), #ffffff]
+  }
+}

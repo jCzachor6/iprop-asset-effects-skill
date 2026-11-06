@@ -1,0 +1,526 @@
+// Portal: an upright rift standing just off the floor. Inside, a dark well
+// falls away in clean depth bands; bright spiral arms wind down into it,
+// knots of light running along them and rings of the tunnel shrinking down
+// the well. The rim wobbles and burns white where two hot spots chase round
+// it. Motes and streaks are pulled in from round about, spin faster as they
+// fall and strike the rim with a pinprick of white; grit skates in along the
+// floor, and the floor under the rift glows.
+//
+// Category: arcane. Loop. Canvas 112x112, origin 56,104 (the floor under the
+// rift). Side view at the scale of a 24x38 character, light from the upper
+// left (a key light brightens the upper-left rim).
+// Frames: the seed rolls 18, 24 or 36 frames at 16.5-19.5 fps; `frames` retimes
+// it. Every moving thing is periodic in the phase, so frame frames+1 is
+// frame 1: the arms turn 1/arms of a turn a cycle, the tunnel rings and the
+// knots run twice, the hot spots go round once.
+// Light: light comes off the rim, not the void. The mask holds the rim, its
+// hot spots, the outer arms, the motes, the strikes on the rim and the floor
+// line, with a faint pool inside the rift; power breathes round 2.6, sigma
+// 10, blur 2.
+//   tint   transparent rolls the colour (45% violet, 25% teal, 15% emerald,
+//          15% crimson); a colour recolours the rift
+//
+// Variety: medium
+asset Portal {
+  size 112x112
+  origin 56,104
+
+  // ---- the effect contract -------------------------------------------------
+  // 0 draws the hero frame; 1..frames play the cycle; a loop wraps, so
+  // frames+1 draws frame 1 again.
+  input u32 frame = 0
+  // 0 rolls the frame count from the seed; 2..64 retimes the effect.
+  input u32 frames = 0
+  // 0 colour sprite, 1 light mask, 2 light under the pixels (the mask with
+  // power, sigma and blur applied, ready to add under the sprite).
+  input u32 renderPass = 0
+  // 0 keeps this frame's own value; above 0 forces it.
+  input f32 power = 0.0
+  input f32 sigma = 0.0
+  input f32 blur = 0.0
+  // Transparent rolls the colour from the seed; a colour recolours it.
+  input color tint = #00000000
+
+  // {frames, fps, loop (1) or one-shot (0), the frame drawn (0 when done)}
+  output rect anim
+  // {x: power, y: sigma, radius: blur} of this frame's light
+  output circle glow
+
+  palette violet = [#0e0718, #261041, #4a1c7c, #7a34c0, #a95cf0, #cf94ff, #efd2ff, #ffffff]
+  palette teal = [#04121a, #0a2c3c, #10546a, #188a9c, #2cc4c8, #7ae8e0, #c8fff6, #ffffff]
+  palette emerald = [#05140c, #0c3020, #145a34, #22904c, #3cc864, #8aeea0, #d2ffd8, #ffffff]
+  palette crimson = [#18060a, #3e0c16, #701624, #a82632, #e0463e, #ff8a6a, #ffd0b8, #ffffff]
+
+  const distribution colours = weighted {1: 45, 2: 25, 3: 15, 4: 15}
+  const distribution armCounts = weighted {2: 25, 3: 55, 4: 20}
+  const f32 heroPhase = 0.0
+  const f32 sigmaMax = 12.0
+  const f32 cx = 56.0
+  const f32 floorY = 104.0
+  const f32 tau = 6.28318
+
+  // Stream keys, one per purpose; per-item streams add i * 0x9e3779b1.
+  const i32 timeKey = 0x68e31da4
+  const i32 lookKey = 0x2f6b9a13
+  const i32 pulseKey = 0x5bd1e995
+  const i32 starKey = 0x4f1bbcdc
+  const i32 orbitKey = 0x1b873593
+  const i32 moteKey = 0x2545f491
+  const i32 streakKey = 0x3c6ef372
+  const i32 skateKey = 0x7a3d1f29
+
+  draw {
+    start = seed
+    // ---- timing: the seed's own frame count, or the one asked for ----------
+    stream_push(hash(start ^ timeKey))
+    rolled = pick(18, 24, 36)
+    rate = 16.5 to 19.5
+    stream_pop()
+    // The cycle's length comes from the rolled count; forcing `frames` keeps
+    // the motion and changes the frame rate.
+    dur = float(rolled) / rate
+    n = rolled
+    if (frames >= 2) { n = min(frames, 64) }
+    f = frame
+    if (f == 0) { f = clamp(int(heroPhase * float(n)) + 1, 1, n) }
+    f = (f - 1) % n + 1
+    // The phase runs 0..1 over the cycle and never reaches 1: frame 1 is 0.
+    phase = (float(f) - 1.0) / float(n)
+
+    // ---- the look: roll everything, whatever the inputs --------------------
+    stream_push(hash(start ^ lookKey))
+    kind = 1 to 4 with colours
+    scale = 0.92 to 1.08 with gaussian(mean = 1.0, sigma = 0.04)
+    turn = -1.0
+    if (chance(0.5)) { turn = 1.0 }
+    arms = 2 to 4 with armCounts
+    wind = 1.7 to 2.6
+    wob = {0.0 to 6.28318, 0.0 to 6.28318}
+    stream_pop()
+    cs = violet
+    if (kind == 2) { cs = teal }
+    if (kind == 3) { cs = emerald }
+    if (kind == 4) { cs = crimson }
+    if (tint.a != 0) { cs = rampFrom(tint) }
+
+    // ---- this frame's light ------------------------------------------------
+    lp = 2.6 + 0.35 * sin(tau * phase * 2.0) + 0.4 * (loopNoise(phase, 2.0, start ^ pulseKey) - 0.5)
+    ls = 10.0
+    lb = 2.0
+    if (power > 0.0) { lp = power }
+    if (sigma > 0.0) { ls = sigma }
+    if (blur > 0.0) { lb = blur }
+    lp = clamp(lp, 0.0, 16.0)
+    ls = clamp(ls, 0.0, sigmaMax)
+    lb = clamp(lb, 0.0, 4.0)
+    anim = {float(n), float(n) / dur, 1.0, float(f)}
+    glow = {lp, ls, lb}
+
+    // ---- the passes (keep as is) -------------------------------------------
+    if (renderPass == 1) {
+      layer mask1(alpha = surface.source_over) { scene(start, phase, cs, scale, turn, arms, wind, wob, 1, 1.0) }
+      surface.paint(mask1, blend = surface.source_over)
+    } else if (renderPass == 2) {
+      if (lp > 0.0) {
+        k = max(1, int(ceil(lp)))
+        layer mask2(alpha = surface.source_over) { scene(start, phase, cs, scale, turn, arms, wind, wob, 1, lp / float(k)) }
+        pool = mask2.blur(ls)
+        bloom = mask2.blur(lb)
+        for i in 0..k { surface.paint(pool, blend = surface.source_over) }
+        for i in 0..k { surface.paint(bloom, blend = surface.source_over) }
+      }
+    } else {
+      layer sprite(alpha = surface.source_over) { scene(start, phase, cs, scale, turn, arms, wind, wob, 0, 1.0) }
+      surface.paint(sprite, blend = surface.source_over)
+    }
+  }
+
+  // Everything at this phase of the cycle, back to front. pass 0 paints
+  // colour; pass 1 paints only what emits light, alpha scaled by amp.
+  scene(start: i32, phase: f32, cs: list<color>, scale: f32, turn: f32, arms: i32, wind: f32, wob: vec2, pass: i32, amp: f32) {
+    rx = 17.0 * scale
+    ry = 29.0 * scale
+    c = {cx, floorY - ry - 5.0}
+    // Light only: the rift fills the air round it with a soft pool.
+    if (pass == 1) { oval(c, rx * 0.95, ry * 0.95, ink(cs[4], 0.2 * amp)) }
+    floorGlow(phase, cs, scale, pass, amp)
+    skaters(start, phase, cs, c, ry, pass, amp)
+    rift(phase, cs, c, rx, ry, turn, arms, wind, wob, pass, amp)
+    well(start, phase, cs, c, rx, ry, turn, wob, pass, amp)
+    rim(phase, cs, c, rx, ry, turn, wob, pass, amp)
+    orbit(start, phase, cs, c, rx, ry, turn, pass, amp)
+    infall(start, phase, cs, c, rx, ry, turn, wob, pass, amp)
+  }
+
+  // The floor under the rift, lit: white in the middle, fading out to the
+  // sides, breathing twice a cycle.
+  floorGlow(phase: f32, cs: list<color>, scale: f32, pass: i32, amp: f32) {
+    pulse = 0.85 + 0.15 * sin(tau * phase * 2.0)
+    half = 36.0 * scale
+    cols = int(half) * 2 + 1
+    for i in 0..cols {
+      x = cx - float(int(half)) + float(i)
+      u = abs(x - cx + 0.5) / half
+      a = 1.0
+      if (u > 0.55) { a = 1.0 - (u - 0.55) / 0.45 }
+      a = clamp(a, 0.0, 1.0) * (0.8 + 0.2 * pulse)
+      col = cs[5]
+      if (u < 0.5) { col = cs[6] }
+      if (u < 0.2) { col = cs[7] }
+      if (pass == 1) { a = a * amp }
+      rect(x, floorY, 1.0, 1.0, ink(col, a))
+      if (u < 0.3) {
+        under = cs[4]
+        ua = 0.5
+        if (u < 0.15) {
+          under = cs[5]
+          ua = 1.0
+        }
+        if (pass == 1) { ua = ua * 0.6 * amp }
+        rect(x, floorY + 1.0, 1.0, 1.0, ink(under, ua))
+      }
+    }
+  }
+
+  // Grit and sparks skating in along the floor, faster and faster, lifting
+  // into the foot of the rift at the end.
+  skaters(start: i32, phase: f32, cs: list<color>, c: vec2, ry: f32, pass: i32, amp: f32) {
+    foot = c.y + ry
+    for i in 0..9 {
+      stream_push(hash((start ^ skateKey) + i * 0x9e3779b1))
+      left = chance(0.5)
+      reach = 22.0 to 48.0
+      lift = 0.0 to 1.5
+      at = 0.0 to 1.0
+      big = chance(0.3)
+      lives = pick(1, 2)
+      stream_pop()
+      side = 1.0
+      if (left == 1) { side = -1.0 }
+      q = fract(phase * float(lives) + at)
+      qb = max(0.0, q - 0.05)
+      y0 = floorY - 1.0 - lift
+      climb = foot + 2.0 - floorY
+      p = {cx + side * reach * (1.0 - q * q * q), y0 + climb * smoothstep(0.55, 1.0, q)}
+      pb = {cx + side * reach * (1.0 - qb * qb * qb), y0 + climb * smoothstep(0.55, 1.0, qb)}
+      a = min(1.0, q * 4.0) * (1.0 - smoothstep(0.85, 1.0, q))
+      col = cs[5]
+      if (big == 1) { col = cs[6] }
+      if (pass == 0) {
+        line(pb, p, 1, ink(col, a * 0.45))
+        pixel(int(p.x), int(p.y), ink(col, a))
+      } else { pixel(int(p.x), int(p.y), ink(col, a * 0.8 * amp)) }
+    }
+  }
+
+  // The well: the rim's shape filled, depth bands falling away to black,
+  // rings of the tunnel shrinking down it, and the spiral arms with their
+  // knots of light winding into the dark.
+  rift(phase: f32, cs: list<color>, c: vec2, rx: f32, ry: f32, turn: f32, arms: i32, wind: f32, wob: vec2, pass: i32, amp: f32) {
+    if (pass == 0) {
+      for s in 0..48 {
+        q0 = tau * float(s) / 48.0
+        q1 = tau * float(s + 1) / 48.0
+        e0 = rimPoint(c, rx, ry, q0, rimR(q0, phase, wob), 0.6)
+        e1 = rimPoint(c, rx, ry, q1, rimR(q1, phase, wob), 0.6)
+        poly(cs[2], c.x, c.y, e0.x, e0.y, e1.x, e1.y)
+      }
+      oval(c, rx * 0.86, ry * 0.87, cs[1])
+      oval(c, rx * 0.55, ry * 0.56, cs[0])
+      oval(c, rx * 0.22, ry * 0.23, #040208)
+      // Rings of the tunnel, a step brighter than the band they cross.
+      for m in 0..4 {
+        z = (float(m) + fract(phase * 2.0)) / 1.5
+        d = exp(-z)
+        if (d > 0.16 && d < 0.94) {
+          fade = smoothstep(0.16, 0.45, d) * (1.0 - smoothstep(0.86, 0.94, d))
+          col = cs[2]
+          if (d > 0.86) { col = cs[3] }
+          if (d < 0.55) { col = cs[1] }
+          ellipse(c, rx * d, ry * d, 1, ink(col, fade), 0.0, tau)
+        }
+      }
+    }
+    for a in 0..arms {
+      q0 = tau * float(a) / float(arms) + turn * tau * phase / float(arms)
+      // A faint arm half way to the next, winding a little tighter.
+      qf = q0 + 3.14159 / float(arms)
+      prev = c
+      for k in 0..22 {
+        z = 0.12 + float(k) * 0.1
+        d = exp(-z)
+        q = qf - turn * wind * 1.09 * z
+        p = rimPoint(c, rx, ry, q, d * rimR(q, phase, wob), 0.0)
+        if (k > 0 && d > 0.22 && d < 0.9 && pass == 0) {
+          col = cs[2]
+          if (d > 0.5) { col = cs[3] }
+          line(prev, p, 1, ink(col, smoothstep(0.22, 0.4, d)))
+        }
+        prev = p
+      }
+      // The bright arm: thick and nearly white at the rim, thinning and
+      // darkening as it sinks.
+      prev = c
+      for k in 0..26 {
+        z = 0.06 + float(k) * 0.095
+        d = exp(-z)
+        q = q0 - turn * wind * z
+        p = rimPoint(c, rx, ry, q, d * rimR(q, phase, wob), 0.0)
+        if (k > 0) {
+          col = armTone(cs, d)
+          if (pass == 0) {
+            thick = 1
+            if (d > 0.62) { thick = 2 }
+            line(prev, p, thick, ink(col, smoothstep(0.09, 0.3, d)))
+          } else if (d > 0.55) { line(prev, p, 1, ink(col, (d - 0.55) * 1.2 * amp)) }
+        }
+        prev = p
+      }
+      // A knot of light running down the arm, twice a cycle.
+      kz = 0.1 + 2.1 * fract(phase * 2.0 + float(a) * 0.37)
+      kd = exp(-kz)
+      kq = q0 - turn * wind * kz
+      kp = rimPoint(c, rx, ry, kq, kd * rimR(kq, phase, wob), 0.0)
+      if (kd > 0.28) {
+        kc = cs[6]
+        if (kd > 0.55) { kc = cs[7] }
+        x = floor(kp.x)
+        y = floor(kp.y)
+        if (pass == 0) {
+          if (kd > 0.5) {
+            rect(x - 1.0, y, 3.0, 1.0, kc)
+            rect(x, y - 1.0, 1.0, 3.0, kc)
+          } else { rect(x, y, 1.0, 1.0, kc) }
+        } else { oval(kp, 1.5, 1.5, ink(kc, kd * amp)) }
+      }
+    }
+  }
+
+  // A bright arm's tone at depth d (1 at the rim, 0 at the bottom).
+  armTone(cs: list<color>, d: f32) -> color {
+    if (d > 0.8) { return cs[6] }
+    if (d > 0.62) { return cs[5] }
+    if (d > 0.45) { return cs[4] }
+    if (d > 0.3) { return cs[3] }
+    return cs[2]
+  }
+
+  // Specks of light deep in the well, swept round with the arms and sinking
+  // towards the bottom, twinkling.
+  well(start: i32, phase: f32, cs: list<color>, c: vec2, rx: f32, ry: f32, turn: f32, wob: vec2, pass: i32, amp: f32) {
+    for i in 0..12 {
+      stream_push(hash((start ^ starKey) + i * 0x9e3779b1))
+      at = 0.0 to 1.0
+      q0 = 0.0 to 6.28318
+      lives = pick(1, 2)
+      blink = pick(5, 7, 9)
+      flash = 0.0 to 6.28318
+      stream_pop()
+      u = fract(phase * float(lives) + at)
+      q = q0 + turn * u * 2.6
+      rho = 0.92 * (1.0 - u * u * 0.9)
+      p = rimPoint(c, rx, ry, q, rho * rimR(q, phase, wob), 0.0)
+      tw = sin(tau * phase * float(blink) + flash)
+      a = min(1.0, u * 6.0) * min(1.0, rho / 0.25) * (1.0 - smoothstep(0.85, 1.0, u))
+      if (tw > -0.3) {
+        col = cs[5]
+        if (rho > 0.45) { col = cs[6] }
+        if (rho > 0.6 && tw > 0.6) { col = cs[7] }
+        if (pass == 0) { pixel(int(p.x), int(p.y), ink(col, a)) }
+        else { pixel(int(p.x), int(p.y), ink(col, a * amp)) }
+      }
+    }
+  }
+
+  // The rim: a white edge, a lit band inside it where the light spills in,
+  // a dark line outside that turns to colour where the rim is hot, and a
+  // faint halo past the hottest stretches.
+  rim(phase: f32, cs: list<color>, c: vec2, rx: f32, ry: f32, turn: f32, wob: vec2, pass: i32, amp: f32) {
+    for s in 0..64 {
+      q0 = tau * float(s) / 64.0
+      q1 = tau * float(s + 1) / 64.0
+      r0 = rimR(q0, phase, wob)
+      r1 = rimR(q1, phase, wob)
+      h = hot((q0 + q1) * 0.5, phase, turn)
+      if (pass == 0) {
+        if (h > 0.6) { line(rimPoint(c, rx, ry, q0, r0, 2.0), rimPoint(c, rx, ry, q1, r1, 2.0), 1, ink(cs[3], 0.5)) }
+        outer = cs[2]
+        if (h > 0.5) { outer = cs[4] }
+        line(rimPoint(c, rx, ry, q0, r0, 1.0), rimPoint(c, rx, ry, q1, r1, 1.0), 1, outer)
+        inner = cs[4]
+        if (h > 0.3) { inner = cs[5] }
+        line(rimPoint(c, rx, ry, q0, r0, -1.0), rimPoint(c, rx, ry, q1, r1, -1.0), 1, inner)
+        edge = cs[6]
+        if (h > 0.42) { edge = cs[7] }
+        line(rimPoint(c, rx, ry, q0, r0, 0.0), rimPoint(c, rx, ry, q1, r1, 0.0), 1, edge)
+      } else {
+        line(rimPoint(c, rx, ry, q0, r0, 0.5), rimPoint(c, rx, ry, q1, r1, 0.5), 3, ink(cs[4], (0.55 + 0.45 * min(h, 1.0)) * amp))
+        if (h > 0.42) { line(rimPoint(c, rx, ry, q0, r0, 0.0), rimPoint(c, rx, ry, q1, r1, 0.0), 1, ink(cs[6], amp)) }
+      }
+    }
+    // The hot spots shine.
+    if (pass == 1) {
+      for j in 0..2 {
+        q = turn * tau * phase - 0.6 + 3.14159 * float(j)
+        p = rimPoint(c, rx, ry, q, rimR(q, phase, wob), 0.0)
+        oval(p, 3.0, 3.0, ink(cs[6], (0.9 - 0.15 * float(j)) * amp))
+      }
+    }
+  }
+
+  // Motes riding round just outside the rim, sinking towards it as they go.
+  orbit(start: i32, phase: f32, cs: list<color>, c: vec2, rx: f32, ry: f32, turn: f32, pass: i32, amp: f32) {
+    for i in 0..7 {
+      stream_push(hash((start ^ orbitKey) + i * 0x9e3779b1))
+      q0 = 0.0 to 6.28318
+      far = 1.2 to 1.55
+      stream_pop()
+      k = fract(phase + float(i) / 7.0)
+      p = rimPoint(c, rx, ry, q0 + turn * (tau * phase + k * 2.5), far - 0.3 * k * k, 0.0)
+      kb = max(0.0, k - 0.05)
+      pb = rimPoint(c, rx, ry, q0 + turn * (tau * (phase - 0.05) + kb * 2.5), far - 0.3 * kb * kb, 0.0)
+      // Under the rift they skim the floor rather than sink into it.
+      p = {p.x, min(p.y, floorY - 2.0)}
+      pb = {pb.x, min(pb.y, floorY - 2.0)}
+      a = min(1.0, sin(k * 3.14159) * 2.2)
+      col = cs[6]
+      if (i % 3 == 0) { col = cs[7] }
+      if (pass == 0) {
+        line(pb, p, 1, ink(cs[4], a * 0.6))
+        pixel(int(p.x), int(p.y), ink(col, a))
+      } else { pixel(int(p.x), int(p.y), ink(col, a * 0.8 * amp)) }
+    }
+  }
+
+  // Motes pulled in from round about, spinning faster as they fall; inside
+  // the rim they sink into the dark. Streaks come in straighter and strike
+  // the rim with a pinprick of white and a flash of light.
+  infall(start: i32, phase: f32, cs: list<color>, c: vec2, rx: f32, ry: f32, turn: f32, wob: vec2, pass: i32, amp: f32) {
+    for i in 0..18 {
+      stream_push(hash((start ^ moteKey) + i * 0x9e3779b1))
+      at = 0.0 to 1.0
+      a0 = 0.0 to 6.28318
+      d0 = 1.8 to 3.0
+      spin = 0.8 to 1.8
+      lazy = chance(0.2)
+      hue = 0.0 to 1.0
+      lives = pick(2, 3)
+      stream_pop()
+      if (lazy == 1) { spin = spin * 0.35 }
+      q = fract(phase * float(lives) + at)
+      th = a0 + turn * spin * q * q
+      rho = d0 * (1.0 - pow(q, 1.4))
+      p = field(c, rx, ry, th, rho)
+      if (rho > rimR(th, phase, wob) + 0.06) {
+        qb = max(0.0, q - 0.02)
+        pb = field(c, rx, ry, a0 + turn * spin * qb * qb, d0 * (1.0 - pow(qb, 1.4)))
+        fade = min(1.0, q * 5.0)
+        col = cs[4]
+        if (hue < 0.8) { col = cs[5] }
+        if (hue < 0.55) { col = cs[6] }
+        if (hue < 0.25) { col = cs[7] }
+        if (pass == 0) {
+          line(pb, p, 1, ink(cs[4], fade * 0.6))
+          pixel(int(p.x), int(p.y), ink(col, fade))
+        } else { pixel(int(p.x), int(p.y), ink(col, fade * 0.7 * amp)) }
+      } else if (rho > 0.3 && pass == 0) {
+        col = cs[5]
+        if (rho > 0.65) { col = cs[6] }
+        pixel(int(p.x), int(p.y), ink(col, rho))
+      }
+    }
+    for i in 0..6 {
+      stream_push(hash((start ^ streakKey) + i * 0x9e3779b1))
+      at = 0.0 to 1.0
+      a0 = 0.0 to 6.28318
+      d0 = 2.3 to 3.0
+      spin = 0.2 to 0.5
+      stream_pop()
+      q = fract(phase + at)
+      qc = sqrt(1.0 - 1.05 / d0)
+      if (q < qc) {
+        p = field(c, rx, ry, a0 + turn * spin * q * q, d0 * (1.0 - q * q))
+        qb = max(0.0, q - 0.05)
+        pb = field(c, rx, ry, a0 + turn * spin * qb * qb, d0 * (1.0 - qb * qb))
+        fade = min(1.0, q * 5.0)
+        if (pass == 0) {
+          line(pb, p, 1, ink(cs[5], fade * 0.75))
+          pixel(int(p.x), int(p.y), ink(cs[7], fade))
+        } else { line(pb, p, 1, ink(cs[6], fade * 0.6 * amp)) }
+      } else {
+        k = 1.0 - (q - qc) / (1.0 - qc)
+        p = field(c, rx, ry, a0 + turn * spin * qc * qc, d0 * (1.0 - qc * qc))
+        if (pass == 0) {
+          if (k > 0.55) {
+            x = floor(p.x)
+            y = floor(p.y)
+            rect(x - 1.0, y, 3.0, 1.0, cs[7])
+            rect(x, y - 1.0, 1.0, 3.0, cs[7])
+          }
+        } else { oval(p, 2.5, 2.5, ink(cs[6], 0.8 * k * k * amp)) }
+      }
+    }
+  }
+
+  // ---- the rift's geometry ---------------------------------------------------
+  // How far the rim stands out at angle q (1 = the oval): three waves rolling
+  // round it, each a whole number of times a cycle.
+  rimR(q: f32, phase: f32, wob: vec2) -> f32 {
+    return 1.0 + 0.022 * sin(5.0 * q + tau * phase + wob.x) + 0.016 * sin(7.0 * q - 2.0 * tau * phase + wob.y) + 0.012 * sin(3.0 * q - 2.0 * tau * phase)
+  }
+  // The point at angle q, r times the oval and e pixels further out.
+  rimPoint(c: vec2, rx: f32, ry: f32, q: f32, r: f32, e: f32) -> vec2 {
+    return c + {cos(q) * (r * rx + e), sin(q) * (r * ry + e)}
+  }
+  // Where a mote at angle q and radius rho (1 = the rim) sits: outside the
+  // rim the field widens, so motes come from round about; never under the
+  // floor.
+  field(c: vec2, rx: f32, ry: f32, q: f32, rho: f32) -> vec2 {
+    out = max(0.0, rho - 1.0)
+    k = min(1.0, rho)
+    return {c.x + cos(q) * (k * rx + out * 16.0), min(floorY - 1.0, c.y + sin(q) * (k * ry + out * 12.0))}
+  }
+  // How hot the rim is at angle q: two spots chasing round with the spin,
+  // and the key light at the upper left.
+  hot(q: f32, phase: f32, turn: f32) -> f32 {
+    s0 = turn * tau * phase - 0.6
+    d0 = wrapPi(q - s0)
+    d1 = wrapPi(q - s0 - 3.14159)
+    return max(exp(-(d0 * d0) / 0.12), 0.85 * exp(-(d1 * d1) / 0.08)) + 0.35 * max(0.0, cos(q + 2.3))
+  }
+  // An angle brought into -pi..pi.
+  wrapPi(a: f32) -> f32 {
+    return a - tau * floor((a + 3.14159) / tau)
+  }
+  // An elliptical arc from angle q0 to q1, as chords.
+  ellipse(c: vec2, rx: f32, ry: f32, thick: i32, col: color, q0: f32, q1: f32) {
+    segs = clamp(int((q1 - q0) * (rx + ry) * 0.25), 2, 48)
+    for s in 0..segs {
+      a0 = q0 + (q1 - q0) * float(s) / float(segs)
+      a1 = q0 + (q1 - q0) * float(s + 1) / float(segs)
+      line(c + {cos(a0) * rx, sin(a0) * ry}, c + {cos(a1) * rx, sin(a1) * ry}, thick, col)
+    }
+  }
+
+  // ---- toolkit ---------------------------------------------------------------
+  // The colour with its alpha scaled by a (clamped to 0..1).
+  ink(c: color, a: f32) -> color {
+    return color.set.a(c, int(clamp(a, 0.0, 1.0) * float(c.a)))
+  }
+  // The fractional part: fract(phase * n + offset) repeats n times a loop.
+  fract(x: f32) -> f32 {
+    return x - floor(x)
+  }
+  // Smooth noise that loops with the phase: the noise field sampled round a
+  // circle, so phase 0 and 1 meet. lane separates independent signals.
+  loopNoise(phase: f32, lane: f32, key: i32) -> f32 {
+    q = 6.28318 * phase
+    return noise(cos(q) * 1.6 + lane * 5.3, sin(q) * 1.6 + lane * 2.9, key)
+  }
+  // Eight steps from a dark shade of the colour, through it, to white.
+  rampFrom(c: color) -> list<color> {
+    base = color.set.a(c, 255)
+    return [color.mix(#08060c, base, 0.2), color.mix(#08060c, base, 0.4), color.mix(#08060c, base, 0.62),
+            color.mix(#08060c, base, 0.84), base, color.mix(base, #fff8e8, 0.35), color.mix(base, #fff8e8, 0.68), #ffffff]
+  }
+}
