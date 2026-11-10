@@ -90,19 +90,19 @@ asset Splash {
   draw {
     start = seed
     // ---- timing: the seed's own frame count, or the one asked for ----------
-    stream_push(hash(start ^ timeKey))
+    stream.push(hash(start ^ timeKey))
     rolled = pick(28, 34, 40)
     dur = 1.5 to 1.9
-    stream_pop()
+    stream.pop()
 
     // ---- the look: roll everything, whatever the inputs --------------------
-    stream_push(hash(start ^ lookKey))
+    stream.push(hash(start ^ lookKey))
     kind = 1 to 3 with looks
     size = 0.85 to 1.15 with gaussian(mean = 1.0, sigma = 0.08)
     fingers = 10 to 14
     phi = 0.0 to 6.28318
     dropIn = chance(0.75)
-    stream_pop()
+    stream.pop()
     if (stone == 1) { dropIn = 1 }
     if (stone == 2) { dropIn = 0 }
     hit = 0.02
@@ -265,7 +265,7 @@ asset Splash {
             am = (a0 + a1) * 0.5
             near = 0
             if (i < m / 2) { near = 1 }
-            nz = noise(am * 4.7 + float(j) * 5.3, 0.5, rs) * 0.65 + noise(am * 11.3, 1.5, rs + 3) * 0.35
+            nz = noise.value(am * 4.7 + float(j) * 5.3, 0.5, rs) * 0.65 + noise.value(am * 11.3, 1.5, rs + 3) * 0.35
             if (nz >= need) {
               lt = kj * (0.7 + 0.3 * float(near)) * (0.88 - 0.12 * cos(am))
               col = cs[4]
@@ -319,7 +319,7 @@ asset Splash {
   }
   // The lip isn't level: it rises and dips round the crown.
   scallop(start: i32, a: f32, h: f32, phi: f32) -> f32 {
-    return h * (0.86 + 0.14 * noise(cos(a) * 2.2 + sin(a) * 1.3 + phi * 3.0, 0.5, start ^ scallopKey))
+    return h * (0.86 + 0.14 * noise.value(cos(a) * 2.2 + sin(a) * 1.3 + phi * 3.0, 0.5, start ^ scallopKey))
   }
   // A point on the sheet at angle a, v of the way from its foot (r0) to its
   // lip (rt, at height hh): it flares out near the top.
@@ -405,7 +405,7 @@ asset Splash {
               p1 = crownPoint(a1, va, r0, rt, h1)
               p2 = crownPoint(a1, vb, r0, rt, h1)
               p3 = crownPoint(a0, vb, r0, rt, h0)
-              poly(glowInk(col, pass, amp, lk, all), p0.x, p0.y, p1.x, p1.y, p2.x, p2.y, p3.x, p3.y)
+              poly(p0.x, p0.y, p1.x, p1.y, p2.x, p2.y, p3.x, p3.y, glowInk(col, pass, amp, lk, all))
             }
           }
           // The rolled lip: a hard white line on the near side, softer on the
@@ -429,10 +429,10 @@ asset Splash {
       reach = 1.0 - smoothstep(tear, tear + 0.1, u)
       if (reach > 0.0) {
         for i in 0..fingers {
-          stream_push(hash((start ^ fingerKey) + i * 0x9e3779b1))
+          stream.push(hash((start ^ fingerKey) + i * 0x9e3779b1))
           jit = -0.25 to 0.25
           fl = 0.2 to 0.36
-          stream_pop()
+          stream.pop()
           fa = phi + tau * (float(i) + jit) / float(fingers)
           fb = 0
           if (sin(fa) < 0.0) { fb = 1 }
@@ -494,8 +494,8 @@ asset Splash {
     w2 = 1.15 + 1.5 * 0.512
     y1 = top + h * 0.5
     y2 = top + h * 0.8
-    poly(col, cx + q0 * 1.15, top, cx + q1 * 1.15, top, cx + q1 * w1, y1, cx + q1 * w2, y2, cx + q1 * 2.65, floorY,
-         cx + q0 * 2.65, floorY, cx + q0 * w2, y2, cx + q0 * w1, y1)
+    poly(cx + q0 * 1.15, top, cx + q1 * 1.15, top, cx + q1 * w1, y1, cx + q1 * w2, y2, cx + q1 * 2.65, floorY,
+         cx + q0 * 2.65, floorY, cx + q0 * w2, y2, cx + q0 * w1, y1, col)
   }
 
   // ---- drops ---------------------------------------------------------------------
@@ -504,58 +504,58 @@ asset Splash {
   // coming apart, the heavy drops shed as the crown falls, the jet's bead.
   drops(start: i32, u: f32, size: f32, fingers: i32, phi: f32, side: i32, cs: list<color>, pass: i32, amp: f32, all: f32) {
     for i in 0..20 {
-      stream_push(hash((start ^ dropKey) + i * 0x9e3779b1))
+      stream.push(hash((start ^ dropKey) + i * 0x9e3779b1))
       a = 0.0 to 6.28318
       v = 45.0 to 110.0
       h0 = 1.0 to 6.0
       up = 160.0 to 250.0
       late = 0.0 to 0.04
       big = chance(0.25)
-      stream_pop()
+      stream.pop()
       drop((start ^ dropKey) + (1000 + i) * 0x9e3779b1, late, cos(a) * 3.0 * size, sin(a) * 3.0 * size, h0, cos(a) * v * size, sin(a) * v * size, up, 1 + big, u, side, cs, pass, amp, all)
     }
     h = crownH(tear, size)
     rt = lipR(tear, size)
     for i in 0..fingers {
-      stream_push(hash((start ^ fingerKey) + i * 0x9e3779b1))
+      stream.push(hash((start ^ fingerKey) + i * 0x9e3779b1))
       jit = -0.25 to 0.25
       fl = 0.2 to 0.36
       turn = -0.08 to 0.08
       v = 32.0 to 80.0
       up = 90.0 to 180.0
       big = chance(0.3)
-      stream_pop()
+      stream.pop()
       fa = phi + tau * (float(i) + jit) / float(fingers)
       fingerLen = h * fl
       drop((start ^ dropKey) + (2000 + i) * 0x9e3779b1, tear, cos(fa) * (rt + fingerLen * 0.45), sin(fa) * rt, scallop(start, fa, h, phi) + fingerLen + 1.0,
            cos(fa + turn) * v * size, sin(fa + turn) * v * size, up, 2 + big, u, side, cs, pass, amp, all)
     }
     for i in 0..6 {
-      stream_push(hash((start ^ dropKey) + (100 + i) * 0x9e3779b1))
+      stream.push(hash((start ^ dropKey) + (100 + i) * 0x9e3779b1))
       t0 = 0.13 to 0.3
       a = 0.0 to 6.28318
       v = 15.0 to 45.0
       k = 0.6 to 1.0
       up = -10.0 to 45.0
       big = chance(0.3)
-      stream_pop()
+      stream.pop()
       r = lipR(t0, size)
       drop((start ^ dropKey) + (3000 + i) * 0x9e3779b1, t0, cos(a) * r, sin(a) * r, scallop(start, a, crownH(t0, size), phi) * k, cos(a) * v, sin(a) * v, up, 1 + big, u, side, cs, pass, amp, all)
     }
     r = lipR(0.3, size)
     for i in 0..8 {
-      stream_push(hash((start ^ dropKey) + (200 + i) * 0x9e3779b1))
+      stream.push(hash((start ^ dropKey) + (200 + i) * 0x9e3779b1))
       a = 0.0 to 6.28318
       v = 15.0 to 40.0
       h0 = 3.0 to 7.0
       up = 30.0 to 80.0
       big = chance(0.4)
-      stream_pop()
+      stream.pop()
       drop((start ^ dropKey) + (4000 + i) * 0x9e3779b1, 0.3, cos(a) * r, sin(a) * r, h0, cos(a) * v, sin(a) * v, up, 1 + big, u, side, cs, pass, amp, all)
     }
-    stream_push(hash((start ^ dropKey) + 300 * 0x9e3779b1))
+    stream.push(hash((start ^ dropKey) + 300 * 0x9e3779b1))
     vx = -6.0 to 6.0
-    stream_pop()
+    stream.pop()
     drop((start ^ dropKey) + 5000 * 0x9e3779b1, jetAt + 0.12, 0.0, 0.2, jetH(0.12, size) + 1.0, vx, 0.0, 55.0, 3, u, side, cs, pass, amp, all)
   }
 
@@ -574,11 +574,11 @@ asset Splash {
         e = (1.0 - exp(-drag * fall)) / drag
         cnt = s - 1
         for j in 0..cnt {
-          stream_push(hash(key + j * 0x9e3779b1))
+          stream.push(hash(key + j * 0x9e3779b1))
           a = 0.0 to 6.28318
           v = 10.0 to 34.0
           up = 55.0 to 110.0
-          stream_pop()
+          stream.pop()
           flight((key ^ 0x2c1b3c6d) + j, t0 + fall, x0 + vx * e, z0 + vz * e, 0.5, cos(a) * v, sin(a) * v, up, 1, u, side, cs, pass, amp, all)
         }
       }
@@ -660,11 +660,11 @@ asset Splash {
   // each with a plink, a ring and two tiny drops.
   bubbles(start: i32, u: f32, cs: list<color>, pass: i32, amp: f32, all: f32) {
     for i in 0..3 {
-      stream_push(hash((start ^ bubbleKey) + i * 0x9e3779b1))
+      stream.push(hash((start ^ bubbleKey) + i * 0x9e3779b1))
       bx = -5.0 to 5.0
       bz = -6.0 to 6.0
       br = 1.3 to 2.3
-      stream_pop()
+      stream.pop()
       t0 = 0.85 + 0.2 * float(i)
       g = (u - t0) / 0.2
       p = at(bx, bz, 0.0)
@@ -687,11 +687,11 @@ asset Splash {
           if (pass == 1) { haze(p, 4.0, cs[5], 0.3 * (1.0 - since / 0.14) * amp) }
         }
         for j in 0..2 {
-          stream_push(hash((start ^ bubbleKey ^ 0x2c1b) + (i * 2 + j) * 0x9e3779b1))
+          stream.push(hash((start ^ bubbleKey ^ 0x2c1b) + (i * 2 + j) * 0x9e3779b1))
           vx = -20.0 to 20.0
           vz = -10.0 to 10.0
           up = 50.0 to 90.0
-          stream_pop()
+          stream.pop()
           flight((start ^ bubbleKey) + 16 + i * 2 + j, pop, bx, bz, 1.0, vx, vz, up, 1, u, 0, cs, pass, amp, all)
         }
       }
@@ -726,7 +726,7 @@ asset Splash {
   // the jet's bead, four as it slumps. Over lava it is smoke.
   mist(start: i32, u: f32, size: f32, cs: list<color>, steam: i32, pass: i32, amp: f32) {
     for i in 0..16 {
-      stream_push(hash((start ^ mistKey) + i * 0x9e3779b1))
+      stream.push(hash((start ^ mistKey) + i * 0x9e3779b1))
       s1 = 0.0 to 1.0
       s2 = 0.0 to 1.0
       s3 = 0.0 to 1.0
@@ -737,7 +737,7 @@ asset Splash {
       sgn = -1.0
       if (chance(0.5)) { sgn = 1.0 }
       pale = chance(0.5)
-      stream_pop()
+      stream.pop()
       t0 = s7 * 0.1
       x0 = sgn * lerp(4.0, 12.0, s1)
       y0 = -lerp(1.0, 7.0, s2)
@@ -801,14 +801,14 @@ asset Splash {
     tt = u - 0.04
     if (tt > 0.0) {
       for i in 0..20 {
-        stream_push(hash((start ^ flakeKey) + i * 0x9e3779b1))
+        stream.push(hash((start ^ flakeKey) + i * 0x9e3779b1))
         a = 0.0 to 6.28318
         lift = 6.0 to 15.0
         v = 25.0 to 90.0
         up = 30.0 to 100.0
         life = 0.7 to 1.3
         bright = chance(0.5)
-        stream_pop()
+        stream.pop()
         age = tt / life
         if (age < 1.0) {
           e = (1.0 - exp(-3.0 * tt)) / 3.0
@@ -825,13 +825,13 @@ asset Splash {
   // Glints winking over the crown as it goes up.
   stars(start: i32, u: f32, cs: list<color>, pass: i32, amp: f32, all: f32) {
     for i in 0..5 {
-      stream_push(hash((start ^ starKey) + i * 0x9e3779b1))
+      stream.push(hash((start ^ starKey) + i * 0x9e3779b1))
       x = -13.0 to 13.0
       y = 6.0 to 20.0
       life = 0.25 to 0.55
       big = 1.0 to 2.4
       late = 0.0 to 0.15
-      stream_pop()
+      stream.pop()
       age = (u - 0.04 - late) / life
       if (age > 0.0 && age < 1.0) {
         sparkle({cx + x, floorY - y - 4.0 * age * life}, big * 1.6 * (1.0 - age), cs, pass, amp, all)
@@ -871,7 +871,7 @@ asset Splash {
   }
   // The colour with its alpha scaled by a (clamped to 0..1).
   ink(c: color, a: f32) -> color {
-    return color.set.a(c, int(clamp(a, 0.0, 1.0) * float(c.a)))
+    return color.set_a(c, int(clamp(a, 0.0, 1.0) * float(c.a)))
   }
   // A fixed pseudo-random number in 0..1 for key and index i.
   rnd(key: i32, i: i32) -> f32 {
@@ -887,8 +887,8 @@ asset Splash {
   }
   // The upper half of an ellipse round (x, y).
   halfOval(x: f32, y: f32, rx: f32, ry: f32, col: color) {
-    poly(col, x - rx, y, x - rx * 0.92, y - ry * 0.38, x - rx * 0.71, y - ry * 0.71, x - rx * 0.38, y - ry * 0.92, x, y - ry,
-         x + rx * 0.38, y - ry * 0.92, x + rx * 0.71, y - ry * 0.71, x + rx * 0.92, y - ry * 0.38, x + rx, y)
+    poly(x - rx, y, x - rx * 0.92, y - ry * 0.38, x - rx * 0.71, y - ry * 0.71, x - rx * 0.38, y - ry * 0.92, x, y - ry,
+         x + rx * 0.38, y - ry * 0.92, x + rx * 0.71, y - ry * 0.71, x + rx * 0.92, y - ry * 0.38, x + rx, y, col)
   }
   // Easing on u clamped to 0..1.
   outCubic(x: f32) -> f32 {
@@ -905,7 +905,7 @@ asset Splash {
   }
   // Eight steps from a dark shade of the colour, through it, to white.
   rampFrom(c: color) -> list<color> {
-    base = color.set.a(c, 255)
+    base = color.set_a(c, 255)
     return [color.mix(#08060c, base, 0.2), color.mix(#08060c, base, 0.4), color.mix(#08060c, base, 0.62),
             color.mix(#08060c, base, 0.84), base, color.mix(base, #fff8e8, 0.35), color.mix(base, #fff8e8, 0.68), #ffffff]
   }

@@ -68,10 +68,10 @@ asset SwordSlash {
   draw {
     start = seed
     // ---- timing: the seed's own frame count, or the one asked for ----------
-    stream_push(hash(start ^ timeKey))
+    stream.push(hash(start ^ timeKey))
     rolled = pick(12, 15, 18)
     dur = 0.55 to 0.65
-    stream_pop()
+    stream.pop()
     n = rolled
     if (frames >= 2) { n = min(frames, 64) }
     f = frame
@@ -79,7 +79,7 @@ asset SwordSlash {
     t = (float(f) - 0.5) / float(n) * dur
 
     // ---- the look: roll everything, whatever the inputs --------------------
-    stream_push(hash(start ^ lookKey))
+    stream.push(hash(start ^ lookKey))
     kind = 1 to 5 with looks
     radius = 36.0 to 44.0 with gaussian(mean = 41.0, sigma = 2.5)
     squash = 0.5 to 0.68
@@ -88,7 +88,7 @@ asset SwordSlash {
     a1 = 0.8 to 1.1
     wide = 10.0 to 13.0
     rising = chance(0.25)
-    stream_pop()
+    stream.pop()
     cs = steel
     if (kind == 2) { cs = crimson }
     if (kind == 3) { cs = gold }
@@ -234,7 +234,7 @@ asset SwordSlash {
               p1 = onArc(c, radius - b0 * w1, q1, shape)
               p2 = onArc(c, radius - b1 * w1, q1, shape)
               p3 = onArc(c, radius - b1 * w0, q0, shape)
-              poly(ink(col, a), p0.x, p0.y, p1.x, p1.y, p2.x, p2.y, p3.x, p3.y)
+              poly(p0.x, p0.y, p1.x, p1.y, p2.x, p2.y, p3.x, p3.y, ink(col, a))
             }
           }
         }
@@ -266,11 +266,11 @@ asset SwordSlash {
     age = t - sweep
     if (age > 0.0) {
       for i in 0..10 {
-        stream_push(hash((start ^ sparkKey) + i * 0x9e3779b1))
+        stream.push(hash((start ^ sparkKey) + i * 0x9e3779b1))
         spread = -0.5 to 0.5
         v = 150.0 to 400.0
         life = 0.12 to 0.35
-        stream_pop()
+        stream.pop()
         if (age < life) {
           a = way + spread
           vel = {cos(a) * v, sin(a) * v}
@@ -300,12 +300,12 @@ asset SwordSlash {
     age = t - sweep
     if (age > 0.0) {
       for i in 0..16 {
-        stream_push(hash((start ^ shaveKey) + i * 0x9e3779b1))
+        stream.push(hash((start ^ shaveKey) + i * 0x9e3779b1))
         along = 0.3 to 1.0
         v = 30.0 to 100.0
         life = 0.45 to 0.95
         pale = chance(0.5)
-        stream_pop()
+        stream.pop()
         // The first shaving lasts to the end, so the last frame still glitters.
         life = life * (dur - sweep)
         if (i == 0) { life = dur - sweep }
@@ -360,7 +360,7 @@ asset SwordSlash {
   }
   // The colour with its alpha scaled by a (clamped to 0..1).
   ink(c: color, a: f32) -> color {
-    return color.set.a(c, int(clamp(a, 0.0, 1.0) * float(c.a)))
+    return color.set_a(c, int(clamp(a, 0.0, 1.0) * float(c.a)))
   }
   // Fast out, then settling: 0 at 0, 1 at 1.
   easeOutExpo(x: f32) -> f32 {
@@ -374,7 +374,7 @@ asset SwordSlash {
   }
   // Seven steps from a dark shade of the colour, through it, to white.
   rampFrom7(c: color) -> list<color> {
-    base = color.set.a(c, 255)
+    base = color.set_a(c, 255)
     return [color.mix(#08060c, base, 0.3), color.mix(#08060c, base, 0.66), color.mix(#08060c, base, 0.88),
             base, color.mix(base, #fff8e8, 0.45), color.mix(base, #fff8e8, 0.78), #ffffff]
   }

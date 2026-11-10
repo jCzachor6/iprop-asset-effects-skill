@@ -39,7 +39,7 @@ asset __ASSET__ {
   palette cold = [#0b1030, #182a6a, #2156b0, #2f8ae0, #4fc4ff, #95e6ff, #d8f8ff, #ffffff]
 
   const f32 heroPhase = 0.0      // where frame 0 (the thumbnail) samples the cycle
-  const f32 sigmaMax = 12.0      // keeps renderPass 2 inside the fuel budget
+  const f32 sigmaMax = 12.0      // keeps renderPass 2 under the check's fuel bar
   const f32 cx = __OX__.0
   const f32 floorY = __OY__.0
 
@@ -51,10 +51,10 @@ asset __ASSET__ {
   draw {
     start = seed
     // ---- timing: the seed's own frame count, or the one asked for ----------
-    stream_push(hash(start ^ timeKey))
+    stream.push(hash(start ^ timeKey))
     rolled = __FRAMES_ROLL__
     rate = __RLO__ to __RHI__
-    stream_pop()
+    stream.pop()
     // The cycle's length comes from the rolled count; forcing `frames` keeps
     // the motion and changes the frame rate.
     dur = float(rolled) / rate
@@ -67,10 +67,10 @@ asset __ASSET__ {
     phase = (float(f) - 1.0) / float(n)
 
     // ---- the look: roll everything, whatever the inputs --------------------
-    stream_push(hash(start ^ lookKey))
+    stream.push(hash(start ^ lookKey))
     useCold = chance(0.25)
     scale = 0.9 to 1.1 with gaussian(mean = 1.0, sigma = 0.05)
-    stream_pop()
+    stream.pop()
     cs = hot
     if (useCold == 1) { cs = cold }
     if (tint.a != 0) { cs = rampFrom(tint) }
@@ -116,11 +116,11 @@ asset __ASSET__ {
     // Placeholder: motes circling the heart and a pulsing glint. Every motion
     // takes a whole number of turns per cycle, so the loop has no seam.
     for i in 0..12 {
-      stream_push(hash((start ^ sparkKey) + i * 0x9e3779b1))
+      stream.push(hash((start ^ sparkKey) + i * 0x9e3779b1))
       offset = 0.0 to 1.0
       radius = 6.0 to 12.0
       turns = pick(1, 2)
-      stream_pop()
+      stream.pop()
       q = 6.28318 * (phase * float(turns) + offset)
       p = heart + {cos(q) * radius, sin(q) * radius * 0.5}
       k = 1.0
@@ -139,7 +139,7 @@ asset __ASSET__ {
   }
   // The colour with its alpha scaled by a (clamped to 0..1).
   ink(c: color, a: f32) -> color {
-    return color.set.a(c, int(clamp(a, 0.0, 1.0) * float(c.a)))
+    return color.set_a(c, int(clamp(a, 0.0, 1.0) * float(c.a)))
   }
   // Fast in, slow out: 1 - (1 - u)^k on u clamped to 0..1.
   easeOut(u: f32, k: f32) -> f32 {
@@ -153,7 +153,7 @@ asset __ASSET__ {
   // circle, so phase 0 and 1 meet. lane separates independent signals.
   loopNoise(phase: f32, lane: f32, key: i32) -> f32 {
     q = 6.28318 * phase
-    return noise(cos(q) * 1.6 + lane * 5.3, sin(q) * 1.6 + lane * 2.9, key)
+    return noise.value(cos(q) * 1.6 + lane * 5.3, sin(q) * 1.6 + lane * 2.9, key)
   }
   // Slow in, fast out: u^k on u clamped to 0..1.
   easeIn(u: f32, k: f32) -> f32 {
@@ -165,18 +165,18 @@ asset __ASSET__ {
   }
   // Eight steps from a dark shade of the colour, through it, to white.
   rampFrom(c: color) -> list<color> {
-    base = color.set.a(c, 255)
+    base = color.set_a(c, 255)
     return [color.mix(#08060c, base, 0.2), color.mix(#08060c, base, 0.4), color.mix(#08060c, base, 0.62),
             color.mix(#08060c, base, 0.84), base, color.mix(base, #fff8e8, 0.35), color.mix(base, #fff8e8, 0.68), #ffffff]
   }
   // A speed-stretched streak: the body from tail to head, a hot head pixel.
-  streak(tail: vec2, head: vec2, hot: color, body: color, a: f32, pass: i32, amp: f32) {
+  streak(tail: vec2, head: vec2, lead: color, body: color, a: f32, pass: i32, amp: f32) {
     if (pass == 0) {
       line(tail, head, 1, ink(body, a))
-      pixel(int(head.x), int(head.y), ink(hot, max(a, 0.6)))
+      pixel(int(head.x), int(head.y), ink(lead, max(a, 0.6)))
     } else {
       line(tail, head, 1, ink(body, a * amp))
-      pixel(int(head.x), int(head.y), ink(hot, amp))
+      pixel(int(head.x), int(head.y), ink(lead, amp))
     }
   }
   // A star glint: a white centre and four tapering arms of length arm.

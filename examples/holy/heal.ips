@@ -71,10 +71,10 @@ asset Heal {
   draw {
     start = seed
     // ---- timing: the seed's own frame count, or the one asked for ----------
-    stream_push(hash(start ^ timeKey))
+    stream.push(hash(start ^ timeKey))
     rolled = pick(24, 30, 36)
     dur = 1.55 to 1.75
-    stream_pop()
+    stream.pop()
     n = rolled
     if (frames >= 2) { n = min(frames, 64) }
     f = frame
@@ -84,13 +84,13 @@ asset Heal {
     t = (float(f) - 0.5) / float(n) * natural
 
     // ---- the look: roll everything, whatever the inputs --------------------
-    stream_push(hash(start ^ lookKey))
+    stream.push(hash(start ^ lookKey))
     kind = 1 to 3 with looks
     petals = 6 to 9
     spin = 0.25 to 0.55
     if (chance(0.5)) { spin = -spin }
     hearts = chance(0.7)
-    stream_pop()
+    stream.pop()
     cs = green
     if (kind == 2) { cs = gold }
     if (kind == 3) { cs = aqua }
@@ -189,9 +189,9 @@ asset Heal {
   // rim, a pale vein, a translucent body, a white tip. near picks the half of
   // the ring to draw (0 behind the body, 1 in front of it).
   petal(start: i32, k: i32, np: i32, t: f32, spin: f32, cs: list<color>, near: i32, pass: i32, amp: f32) {
-    stream_push(hash((start ^ petalKey) + k * 0x9e3779b1))
+    stream.push(hash((start ^ petalKey) + k * 0x9e3779b1))
     w = 4.2 to 5.2
-    stream_pop()
+    stream.pop()
     g = tau * float(k) / float(np) + 0.2 + t * spin
     b = bloom(t, 0.02 + float((k * 3) % np) * 0.035, k)
     side = 0
@@ -231,8 +231,8 @@ asset Heal {
         if (pass == 0) {
           body = 0.45
           if (near == 0) { body = 0.6 }
-          poly(ink(cs[3], body), base.x, base.y, l1.x, l1.y, l2.x, l2.y, r2.x, r2.y, r1.x, r1.y)
-          poly(ink(cs[4], body), r2.x, r2.y, l2.x, l2.y, l3.x, l3.y, l4.x, l4.y, tip.x, tip.y, r4.x, r4.y, r3.x, r3.y)
+          poly(base.x, base.y, l1.x, l1.y, l2.x, l2.y, r2.x, r2.y, r1.x, r1.y, ink(cs[3], body))
+          poly(r2.x, r2.y, l2.x, l2.y, l3.x, l3.y, l4.x, l4.y, tip.x, tip.y, r4.x, r4.y, r3.x, r3.y, ink(cs[4], body))
           vein = 0.85
           if (near == 0) { vein = 0.75 }
           line(base + u * (len * 0.15), q2, 1, ink(cs[5], vein))
@@ -293,7 +293,7 @@ asset Heal {
   // little and fade, twinkling.
   stars(start: i32, t: f32, cs: list<color>, pass: i32, amp: f32) {
     for i in 0..16 {
-      stream_push(hash((start ^ starKey) + i * 0x9e3779b1))
+      stream.push(hash((start ^ starKey) + i * 0x9e3779b1))
       ts = lift0 to lift1
       dx = -7.0 to 7.0
       vx = -4.0 to 4.0
@@ -301,7 +301,7 @@ asset Heal {
       life = 0.3 to 0.55
       white = chance(0.5)
       size = 0.6 to 1.6
-      stream_pop()
+      stream.pop()
       a = t - ts
       if (a > 0.0 && a < life) {
         y0 = floorY + topY * easeInOutSine(seg(ts, lift0, lift1))
@@ -327,7 +327,7 @@ asset Heal {
   riders(start: i32, t: f32, cs: list<color>, np: i32, spin: f32, hearts: i32, back: i32, pass: i32, amp: f32) {
     total = np + 8
     for m in 0..total {
-      stream_push(hash((start ^ moteKey) + m * 0x9e3779b1))
+      stream.push(hash((start ^ moteKey) + m * 0x9e3779b1))
       riseA = 46.0 to 58.0
       lifeA = 0.75 to 0.95
       late = 0.0 to 0.06
@@ -335,7 +335,7 @@ asset Heal {
       yB = -2.0 to 4.0
       riseB = 14.0 to 34.0
       lifeB = 0.35 to 0.6
-      stream_pop()
+      stream.pop()
       t0 = 0.2 + float(m) * 0.05
       th0 = tau * float(m) / float(np) + 0.2 + t0 * spin
       r0 = ringR * 0.9
@@ -464,7 +464,7 @@ asset Heal {
   }
   // The colour with its alpha scaled by a (clamped to 0..1).
   ink(c: color, a: f32) -> color {
-    return color.set.a(c, int(clamp(a, 0.0, 1.0) * float(c.a)))
+    return color.set_a(c, int(clamp(a, 0.0, 1.0) * float(c.a)))
   }
   // How far t is from a to b, clamped to 0..1.
   seg(t: f32, a: f32, b: f32) -> f32 {
@@ -485,7 +485,7 @@ asset Heal {
   }
   // Eight steps from a dark shade of the colour, through it, to white.
   rampFrom(c: color) -> list<color> {
-    base = color.set.a(c, 255)
+    base = color.set_a(c, 255)
     return [color.mix(#08060c, base, 0.2), color.mix(#08060c, base, 0.4), color.mix(#08060c, base, 0.62),
             color.mix(#08060c, base, 0.84), base, color.mix(base, #fff8e8, 0.35), color.mix(base, #fff8e8, 0.68), #ffffff]
   }

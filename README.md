@@ -52,10 +52,11 @@ sheet or glow under pixel sprites made with Infinite Props, or want one of these
 ## Requirements
 
 - Node 20 or newer; the scripts use no packages.
-- The Infinite Props SDK. The scripts download 0.9.0 for macOS arm64, Linux x86_64 or Windows x86_64
-  into `~/.cache/iprop-asset/sdk/<version>` (the cache the iprop-asset skill uses too) and check it
-  against the release's SHA-256 sums. `IPROP_SDK` points them at an unpacked SDK instead,
-  `IPROP_VERSION` selects another release and `IPROP_SDK_CACHE` moves the cache.
+- The Infinite Props SDK. The scripts download 1.0.0 for macOS (Apple silicon or Intel), Linux x86_64
+  or Windows x86_64 into `~/.cache/iprop-asset/sdk/<version>` (the cache the iprop-asset skill uses
+  too) and check it against the release's SHA-256 sums. `IPROP_SDK` points them at an unpacked SDK
+  instead, `IPROP_VERSION` selects another release and `IPROP_SDK_CACHE` moves the cache. The effects
+  and the templates are written in the 1.0 language, which an older release does not compile.
 - ffmpeg, only for GIF previews.
 
 ## Scripts
@@ -78,8 +79,8 @@ node --test scripts/test                                              # the skil
 
 `check-fx.mjs` exits with 1 when an effect fails (compile errors, traps, broken outputs or inputs,
 one-shots that do not end empty, loops that do not wrap) and prints warnings for the rest: a seam when
-a loop wraps, light with an empty mask, sprites touching the edge, fuel near the budget, seeds that look
-alike. Renders go to `out/<effect>/` under the current folder.
+a loop wraps, light with an empty mask, sprites touching the edge, a frame above the fuel bar, seeds
+that look alike. Renders go to `out/<effect>/` under the current folder.
 
 ## See them
 

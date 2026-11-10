@@ -72,10 +72,10 @@ asset Portal {
   draw {
     start = seed
     // ---- timing: the seed's own frame count, or the one asked for ----------
-    stream_push(hash(start ^ timeKey))
+    stream.push(hash(start ^ timeKey))
     rolled = pick(18, 24, 36)
     rate = 16.5 to 19.5
-    stream_pop()
+    stream.pop()
     // The cycle's length comes from the rolled count; forcing `frames` keeps
     // the motion and changes the frame rate.
     dur = float(rolled) / rate
@@ -88,7 +88,7 @@ asset Portal {
     phase = (float(f) - 1.0) / float(n)
 
     // ---- the look: roll everything, whatever the inputs --------------------
-    stream_push(hash(start ^ lookKey))
+    stream.push(hash(start ^ lookKey))
     kind = 1 to 4 with colours
     scale = 0.92 to 1.08 with gaussian(mean = 1.0, sigma = 0.04)
     turn = -1.0
@@ -96,7 +96,7 @@ asset Portal {
     arms = 2 to 4 with armCounts
     wind = 1.7 to 2.6
     wob = {0.0 to 6.28318, 0.0 to 6.28318}
-    stream_pop()
+    stream.pop()
     cs = violet
     if (kind == 2) { cs = teal }
     if (kind == 3) { cs = emerald }
@@ -187,14 +187,14 @@ asset Portal {
   skaters(start: i32, phase: f32, cs: list<color>, c: vec2, ry: f32, pass: i32, amp: f32) {
     foot = c.y + ry
     for i in 0..9 {
-      stream_push(hash((start ^ skateKey) + i * 0x9e3779b1))
+      stream.push(hash((start ^ skateKey) + i * 0x9e3779b1))
       left = chance(0.5)
       reach = 22.0 to 48.0
       lift = 0.0 to 1.5
       at = 0.0 to 1.0
       big = chance(0.3)
       lives = pick(1, 2)
-      stream_pop()
+      stream.pop()
       side = 1.0
       if (left == 1) { side = -1.0 }
       q = fract(phase * float(lives) + at)
@@ -223,7 +223,7 @@ asset Portal {
         q1 = tau * float(s + 1) / 48.0
         e0 = rimPoint(c, rx, ry, q0, rimR(q0, phase, wob), 0.6)
         e1 = rimPoint(c, rx, ry, q1, rimR(q1, phase, wob), 0.6)
-        poly(cs[2], c.x, c.y, e0.x, e0.y, e1.x, e1.y)
+        poly(c.x, c.y, e0.x, e0.y, e1.x, e1.y, cs[2])
       }
       oval(c, rx * 0.86, ry * 0.87, cs[1])
       oval(c, rx * 0.55, ry * 0.56, cs[0])
@@ -309,13 +309,13 @@ asset Portal {
   // towards the bottom, twinkling.
   well(start: i32, phase: f32, cs: list<color>, c: vec2, rx: f32, ry: f32, turn: f32, wob: vec2, pass: i32, amp: f32) {
     for i in 0..12 {
-      stream_push(hash((start ^ starKey) + i * 0x9e3779b1))
+      stream.push(hash((start ^ starKey) + i * 0x9e3779b1))
       at = 0.0 to 1.0
       q0 = 0.0 to 6.28318
       lives = pick(1, 2)
       blink = pick(5, 7, 9)
       flash = 0.0 to 6.28318
-      stream_pop()
+      stream.pop()
       u = fract(phase * float(lives) + at)
       q = q0 + turn * u * 2.6
       rho = 0.92 * (1.0 - u * u * 0.9)
@@ -371,10 +371,10 @@ asset Portal {
   // Motes riding round just outside the rim, sinking towards it as they go.
   orbit(start: i32, phase: f32, cs: list<color>, c: vec2, rx: f32, ry: f32, turn: f32, pass: i32, amp: f32) {
     for i in 0..7 {
-      stream_push(hash((start ^ orbitKey) + i * 0x9e3779b1))
+      stream.push(hash((start ^ orbitKey) + i * 0x9e3779b1))
       q0 = 0.0 to 6.28318
       far = 1.2 to 1.55
-      stream_pop()
+      stream.pop()
       k = fract(phase + float(i) / 7.0)
       p = rimPoint(c, rx, ry, q0 + turn * (tau * phase + k * 2.5), far - 0.3 * k * k, 0.0)
       kb = max(0.0, k - 0.05)
@@ -397,7 +397,7 @@ asset Portal {
   // the rim with a pinprick of white and a flash of light.
   infall(start: i32, phase: f32, cs: list<color>, c: vec2, rx: f32, ry: f32, turn: f32, wob: vec2, pass: i32, amp: f32) {
     for i in 0..18 {
-      stream_push(hash((start ^ moteKey) + i * 0x9e3779b1))
+      stream.push(hash((start ^ moteKey) + i * 0x9e3779b1))
       at = 0.0 to 1.0
       a0 = 0.0 to 6.28318
       d0 = 1.8 to 3.0
@@ -405,7 +405,7 @@ asset Portal {
       lazy = chance(0.2)
       hue = 0.0 to 1.0
       lives = pick(2, 3)
-      stream_pop()
+      stream.pop()
       if (lazy == 1) { spin = spin * 0.35 }
       q = fract(phase * float(lives) + at)
       th = a0 + turn * spin * q * q
@@ -430,12 +430,12 @@ asset Portal {
       }
     }
     for i in 0..6 {
-      stream_push(hash((start ^ streakKey) + i * 0x9e3779b1))
+      stream.push(hash((start ^ streakKey) + i * 0x9e3779b1))
       at = 0.0 to 1.0
       a0 = 0.0 to 6.28318
       d0 = 2.3 to 3.0
       spin = 0.2 to 0.5
-      stream_pop()
+      stream.pop()
       q = fract(phase + at)
       qc = sqrt(1.0 - 1.05 / d0)
       if (q < qc) {
@@ -505,7 +505,7 @@ asset Portal {
   // ---- toolkit ---------------------------------------------------------------
   // The colour with its alpha scaled by a (clamped to 0..1).
   ink(c: color, a: f32) -> color {
-    return color.set.a(c, int(clamp(a, 0.0, 1.0) * float(c.a)))
+    return color.set_a(c, int(clamp(a, 0.0, 1.0) * float(c.a)))
   }
   // The fractional part: fract(phase * n + offset) repeats n times a loop.
   fract(x: f32) -> f32 {
@@ -515,11 +515,11 @@ asset Portal {
   // circle, so phase 0 and 1 meet. lane separates independent signals.
   loopNoise(phase: f32, lane: f32, key: i32) -> f32 {
     q = 6.28318 * phase
-    return noise(cos(q) * 1.6 + lane * 5.3, sin(q) * 1.6 + lane * 2.9, key)
+    return noise.value(cos(q) * 1.6 + lane * 5.3, sin(q) * 1.6 + lane * 2.9, key)
   }
   // Eight steps from a dark shade of the colour, through it, to white.
   rampFrom(c: color) -> list<color> {
-    base = color.set.a(c, 255)
+    base = color.set_a(c, 255)
     return [color.mix(#08060c, base, 0.2), color.mix(#08060c, base, 0.4), color.mix(#08060c, base, 0.62),
             color.mix(#08060c, base, 0.84), base, color.mix(base, #fff8e8, 0.35), color.mix(base, #fff8e8, 0.68), #ffffff]
   }

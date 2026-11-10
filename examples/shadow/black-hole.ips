@@ -64,10 +64,10 @@ asset BlackHole {
   draw {
     start = seed
     // ---- timing: the seed's own frame count, or the one asked for ----------
-    stream_push(hash(start ^ timeKey))
+    stream.push(hash(start ^ timeKey))
     rolled = pick(18, 24, 36)
     rate = 16.5 to 19.5
-    stream_pop()
+    stream.pop()
     dur = float(rolled) / rate
     n = rolled
     if (frames >= 2) { n = min(frames, 64) }
@@ -77,7 +77,7 @@ asset BlackHole {
     phase = (float(f) - 1.0) / float(n)
 
     // ---- the look: roll everything, whatever the inputs --------------------
-    stream_push(hash(start ^ lookKey))
+    stream.push(hash(start ^ lookKey))
     kind = 1 to 3 with looks
     hole = 6.5 to 8.5
     outer = 27.0 to 32.0
@@ -87,7 +87,7 @@ asset BlackHole {
     if (chance(0.5)) { spin = -1.0 }
     streaks = 5 to 9
     swirl = {0.0 to 6.28318, 0.0 to 6.28318}
-    stream_pop()
+    stream.pop()
     cs = amber
     if (kind == 2) { cs = void }
     if (kind == 3) { cs = ion }
@@ -250,14 +250,14 @@ asset BlackHole {
   // are hidden by it.
   motes(start: i32, phase: f32, cs: list<color>, c: vec2, size: vec2, disc: vec2, spin: f32, pass: i32, amp: f32) {
     for i in 0..14 {
-      stream_push(hash((start ^ moteKey) + i * 0x9e3779b1))
+      stream.push(hash((start ^ moteKey) + i * 0x9e3779b1))
       at = 0.0 to 1.0
       births = pick(1, 2)
       q0 = 0.0 to 6.28318
       r0 = 0.8 to 1.15
       turns = 0.6 to 1.2
       white = chance(0.4)
-      stream_pop()
+      stream.pop()
       u = fract(phase * float(births) + at)
       ub = max(0.0, u - 0.06)
       r = size.x + (size.y * r0 - size.x) * (1.0 - u) * (1.0 - u)
@@ -284,7 +284,7 @@ asset BlackHole {
   // ---- toolkit ---------------------------------------------------------------
   // The colour with its alpha scaled by a (clamped to 0..1).
   ink(c: color, a: f32) -> color {
-    return color.set.a(c, int(clamp(a, 0.0, 1.0) * float(c.a)))
+    return color.set_a(c, int(clamp(a, 0.0, 1.0) * float(c.a)))
   }
   // The fractional part: fract(phase * n + offset) repeats n times a loop.
   fract(x: f32) -> f32 {
@@ -292,7 +292,7 @@ asset BlackHole {
   }
   // Eight steps from a dark shade of the colour, through it, to white.
   rampFrom(c: color) -> list<color> {
-    base = color.set.a(c, 255)
+    base = color.set_a(c, 255)
     return [color.mix(#08060c, base, 0.2), color.mix(#08060c, base, 0.4), color.mix(#08060c, base, 0.62),
             color.mix(#08060c, base, 0.84), base, color.mix(base, #fff8e8, 0.35), color.mix(base, #fff8e8, 0.68), #ffffff]
   }

@@ -5,6 +5,9 @@
 //
 // Usage: node check-fx.mjs <effect.ips | folder> [--seeds 1-6] [--variety 1-48] [--fuel-warn 3500000]
 //          [--emit] [--json]
+//   --fuel-warn  the most fuel one frame of one pass may spend before the check warns. It is the
+//                skill's own bar, far below the program's budget (25,000,000 by default since
+//                Infinite Props 1.0): a game renders dozens of frames per effect
 //   --emit   write <name>.iprop next to each <name>.ips that does not fail, ready for a game
 //   --json   print one JSON report instead of the text
 // Prints PASS, WARN or FAIL per effect. Exits with 1 when any effect fails (warnings do not fail), with 2
@@ -110,9 +113,11 @@ async function checkEffect(file) {
 
   // Every frame of a few seeds, every pass.
   const peakFuel = [0, 0, 0], frameCounts = []
+  let budget = 0
   for (const seed of seeds) {
     const first = await generate(sdk, binary, seed, { frame: 1 }, scratch)
     if (!first.ok) { fails.push(`seed ${seed} frame 1 traps: ${first.error}`); continue }
+    budget = first.budget
     const anim = animOf(first.outputs)
     if (!anim) { fails.push(`seed ${seed}: anim output not written`); continue }
     frameCounts.push(anim.frames)
@@ -186,13 +191,15 @@ async function checkEffect(file) {
   if (empties) fails.push(`${empties} hero frames are empty`)
   if (unique < heroes.length * 0.9) warns.push(`only ${unique} of ${heroes.length} hero frames differ`)
 
-  for (const [pass, fuel] of peakFuel.entries()) if (fuel > fuelWarn) warns.push(`renderPass ${pass} peaks at ${fuel.toLocaleString("en")} fuel (budget 5,000,000)`)
+  for (const [pass, fuel] of peakFuel.entries()) {
+    if (fuel > fuelWarn) warns.push(`renderPass ${pass} peaks at ${fuel.toLocaleString("en")} fuel: keep a frame under ${fuelWarn.toLocaleString("en")}${budget ? ` (the budget is ${budget.toLocaleString("en")})` : ""}`)
+  }
   if (frameCounts.length) notes.push(`frames ${Math.min(...frameCounts)}-${Math.max(...frameCounts)}`)
   notes.push(`heroes ${unique}/${heroes.length} distinct`, `peak fuel ${peakFuel.map((f) => f.toLocaleString("en")).join(" / ")} (sprite / mask / baked)`)
   Object.assign(result, {
     frames: frameCounts.length ? [Math.min(...frameCounts), Math.max(...frameCounts)] : null,
     heroes: { distinct: unique, total: heroes.length },
-    fuel: { sprite: peakFuel[0], mask: peakFuel[1], baked: peakFuel[2] },
+    fuel: { sprite: peakFuel[0], mask: peakFuel[1], baked: peakFuel[2], budget },
   })
   if (!fails.length && cli.flag("--emit")) {
     copyFileSync(binary, file.replace(/\.ips$/, ".iprop"))

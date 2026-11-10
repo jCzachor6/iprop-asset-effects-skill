@@ -54,7 +54,8 @@ export const compileEffect = (sdk, file, output) => {
 const uniformValue = (value) => (/^-\d+$/.test(String(value)) ? String((Number(value) + 2 ** 32) >>> 0) : String(value))
 
 /**
- * Renders one generation with ipgen, asynchronously: { ok, image, outputs, fuel } or { ok: false, error }.
+ * Renders one generation with ipgen, asynchronously: { ok, image, outputs, fuel, budget } or
+ * { ok: false, error }. `fuel` is what the generation spent and `budget` what the program allows.
  * `uniforms` is an object { name: value }.
  */
 export const generate = (sdk, binary, seed, uniforms = {}, scratch) =>
@@ -78,7 +79,7 @@ export const generate = (sdk, binary, seed, uniforms = {}, scratch) =>
         rmSync(png, { force: true })
         const outputs = {}
         for (const slot of info.outputs ?? []) outputs[slot.name] = slot.values?.[0] ?? null
-        done({ ok: true, image, outputs, fuel: info.fuel?.spent ?? 0 })
+        done({ ok: true, image, outputs, fuel: info.fuel?.spent ?? 0, budget: info.fuel?.budget ?? 0 })
       } catch (error) {
         done({ ok: false, error: String(error.message ?? error) })
       }

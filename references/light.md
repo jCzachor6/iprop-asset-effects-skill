@@ -65,7 +65,7 @@ draw it **additively** (source × alpha + destination) under the sprite, at the 
   room round what glows, or fade the mask toward a tight edge (the lightning fades its sky).
 - Internally the pass paints each blurred layer `k = ceil(power)` times at `power / k` of its strength.
   `k` source-over coats give `1 - (1 - x/k)^k`, which is the exposure curve to within a few percent.
-- Sigma is clamped to 12 inside the asset to stay within the fuel budget, so use the mask path for wider
+- Sigma is clamped to 12 inside the asset to keep the baked pass cheap, so use the mask path for wider
   light.
 
 ### 2. The mask, blurred by the game

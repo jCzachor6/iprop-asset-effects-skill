@@ -69,10 +69,10 @@ asset PlasmaBall {
   draw {
     start = seed
     // ---- timing: the seed's own frame count, or the one asked for ----------
-    stream_push(hash(start ^ timeKey))
+    stream.push(hash(start ^ timeKey))
     rolled = pick(36, 45, 54)
     rate = 16.5 to 19.5
-    stream_pop()
+    stream.pop()
     dur = float(rolled) / rate
     n = rolled
     if (frames >= 2) { n = min(frames, 64) }
@@ -82,12 +82,12 @@ asset PlasmaBall {
     phase = (float(f) - 1.0) / float(n)
 
     // ---- the look: roll everything, whatever the inputs --------------------
-    stream_push(hash(start ^ lookKey))
+    stream.push(hash(start ^ lookKey))
     kind = 1 to 4 with looks
     rg = 21.0 to 25.0 with gaussian(mean = 23.5, sigma = 1.0)
     count = 7 to 11
     wander = 0.7 to 1.1
-    stream_pop()
+    stream.pop()
     cs = violet
     if (kind == 2) { cs = electric }
     if (kind == 3) { cs = rose }
@@ -97,9 +97,9 @@ asset PlasmaBall {
     // The crackle: re-rolled at a fixed rate, a whole number of times a cycle.
     ticks = max(1, round(dur * 20.0))
     tick = int(floor(phase * float(ticks)))
-    stream_push(hash((start ^ crackleKey) + tick * 0x9e3779b1))
+    stream.push(hash((start ^ crackleKey) + tick * 0x9e3779b1))
     jolt = 0.0 to 1.0
-    stream_pop()
+    stream.pop()
     beats = max(1, round(dur * 2.0))
     pulse = 0.85 + 0.15 * sin(tau * phase * float(beats)) + 0.1 * (jolt - 0.5)
 
@@ -167,13 +167,13 @@ asset PlasmaBall {
         u1 = bandU[b + 1]
         tone = bandTone[b]
         // The body widens from a half-width of 9 under the collar to 15.
-        poly(metal[tone], cx + (2.0 * u0 - 1.0) * 9.0, top, cx + (2.0 * u1 - 1.0) * 9.0, top,
-             cx + (2.0 * u1 - 1.0) * 13.56, low, cx + (2.0 * u0 - 1.0) * 13.56, low)
-        poly(metal[max(0, tone - 1)], cx + (2.0 * u0 - 1.0) * 13.56, low, cx + (2.0 * u1 - 1.0) * 13.56, low,
-             cx + (2.0 * u1 - 1.0) * 15.0, floorY - 2.0, cx + (2.0 * u0 - 1.0) * 15.0, floorY - 2.0)
+        poly(cx + (2.0 * u0 - 1.0) * 9.0, top, cx + (2.0 * u1 - 1.0) * 9.0, top,
+             cx + (2.0 * u1 - 1.0) * 13.56, low, cx + (2.0 * u0 - 1.0) * 13.56, low, metal[tone])
+        poly(cx + (2.0 * u0 - 1.0) * 13.56, low, cx + (2.0 * u1 - 1.0) * 13.56, low,
+             cx + (2.0 * u1 - 1.0) * 15.0, floorY - 2.0, cx + (2.0 * u0 - 1.0) * 15.0, floorY - 2.0, metal[max(0, tone - 1)])
       }
       // The plasma's light on the upper left of the body.
-      poly(ink(cs[4], 0.3 * pulse), cx - 9.0, top, cx, top, cx, top + 3.0, cx - 9.5, top + 3.0)
+      poly(cx - 9.0, top, cx, top, cx, top + 3.0, cx - 9.5, top + 3.0, ink(cs[4], 0.3 * pulse))
       // The collar, lit from the glass above.
       rect(cx - 7.0, floorY - 32.0, 14.0, 2.0, metal[5])
       rect(cx - 7.0, floorY - 32.0, 8.0, 2.0, cs[4])
@@ -287,7 +287,7 @@ asset PlasmaBall {
     len = max(vec2.len(d), 1.0)
     nrm = {-d.y / len, d.x / len}
     m = max(4, round(len / 2.2))
-    stream_push(fresh)
+    stream.push(fresh)
     hot = chance(0.2)
     prev = s + off
     foot = e
@@ -338,7 +338,7 @@ asset PlasmaBall {
       line(foot, mid, 1, c)
       line(mid, tip, 1, c)
     }
-    stream_pop()
+    stream.pop()
   }
 
   // ---- toolkit ---------------------------------------------------------------------
@@ -359,11 +359,11 @@ asset PlasmaBall {
   }
   // The colour with its alpha scaled by a (clamped to 0..1).
   ink(c: color, a: f32) -> color {
-    return color.set.a(c, int(clamp(a, 0.0, 1.0) * float(c.a)))
+    return color.set_a(c, int(clamp(a, 0.0, 1.0) * float(c.a)))
   }
   // Eight steps from a dark shade of the colour, through it, to white.
   rampFrom(c: color) -> list<color> {
-    base = color.set.a(c, 255)
+    base = color.set_a(c, 255)
     return [color.mix(#08060c, base, 0.2), color.mix(#08060c, base, 0.4), color.mix(#08060c, base, 0.62),
             color.mix(#08060c, base, 0.84), base, color.mix(base, #fff8e8, 0.35), color.mix(base, #fff8e8, 0.68), #ffffff]
   }

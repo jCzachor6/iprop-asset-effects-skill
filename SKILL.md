@@ -17,14 +17,15 @@ Every frame also returns two outputs: `anim` {frames, fps, loop, frame} and `glo
 The seed rolls everything (the palette family, the shapes, the particle paths, the frame count, the
 timing), and each input forces one aspect without disturbing the rest. `ipc` compiles the `.ips` source
 into one self-contained `.iprop` that the C, Godot, Unity, web, Swift, Kotlin and Python runtimes play.
-Write in the current language (0.9), not in the style of older code you may find.
+Write in the current language (1.0), not in the style of older code you may find: 1.0 renamed several
+builtins (`stream.push`, `noise.value`, `color.set_a`), and an older spelling no longer compiles.
 
 ## Before writing code
 
-1. **Get the SDK.** `node <skill>/scripts/sdk.mjs` downloads Infinite Props 0.9.0 into a cache
-   (SHA-256 checked, macOS arm64, Linux x64 or Windows x64), or uses `IPROP_SDK` when it points at an
-   unpacked SDK. It prints the tools and the path of `LLM_REFERENCE.md` for that exact version, with
-   the line where every section starts.
+1. **Get the SDK.** `node <skill>/scripts/sdk.mjs` downloads Infinite Props 1.0.0 into a cache
+   (SHA-256 checked; macOS on Apple silicon or Intel, Linux x64 or Windows x64), or uses `IPROP_SDK`
+   when it points at an unpacked SDK. It prints the tools and the path of `LLM_REFERENCE.md` for that
+   exact version, with the line where every section starts.
 2. **Read the reference.** Read `LLM_REFERENCE.md` from line 1 to the end of "Compiler rules", then the
    sections you use as you use them (layers and masks, the builtins you call). Signatures, argument
    names and limits come from there; do not guess them.
@@ -150,8 +151,9 @@ medium variety and the palette the request implies, and write these in the heade
   round what glows.
 - Pixel art: hard steps between tones, light from the upper left, readable edges, no lone noise pixels.
   Translucent paint goes through the template's source-over layers.
-- Paint rows, lines and ovals, not pixel loops, and keep particles in the tens: a generation has
-  5,000,000 fuel, and pass 2 spends most of it on blurs.
+- Paint rows, lines and ovals, not pixel loops, and keep particles in the tens: a game renders dozens
+  of frames per effect, so a frame should stay under 3,500,000 fuel, and pass 2 spends most of that
+  on blurs. (A 1.0 program may spend 25,000,000; the check warns at its own, lower bar.)
 - Effects that point somewhere face right; ground effects stand on their origin's row; side view at the
   scale of a 24x38 character. Generic motifs are fine; never recreate a specific game's sprites,
   characters or logos.
@@ -167,6 +169,12 @@ medium variety and the palette the request implies, and write these in the heade
 - `seed` changes with every draw in the main stream: derive every stream from `start`, each with its own
   key. Two purposes sharing a key draw the same numbers.
 - `from`, `layer`, `mask` and `clip` are reserved: do not name locals after them.
+- Names (1.0): the inputs, outputs, palettes, constants and helpers of an effect share one namespace,
+  and a helper's parameter cannot be called like a palette or an output (`glow`, `anim`, or a palette
+  such as `hot`). A helper cannot take a builtin's name (`lerp`, `rect`). The compiler says which two
+  names collide.
+- An older spelling (`stream_push`, `noise(x, y, seed)`, `color.set.a`, `fill(d, w)`, `pick(n)`) is a
+  compile error whose message names the replacement.
 - The root canvas paints in `surface.legacy` mode, where translucent paint over an empty pixel
   disappears. Keep the template's passes, which draw the scene in a source-over layer.
 - Keep the template's frame dispatch: a loop maps frame n+1 back to frame 1 (`f = (f - 1) % n + 1`), and
@@ -174,8 +182,8 @@ medium variety and the palette the request implies, and write these in the heade
 - Re-rolling something from the frame number (`hash(start ^ f)`) makes it twitch faster at higher frame
   counts, and a wave with a fractional count per cycle makes the loop jump at the seam.
 - `.blur(sigma)` needs sigma in 0..64, and pass 2's cost grows with the canvas and sigma: the check
-  renders pass 2 at power 16, sigma 24 and blur 8, which must fit the fuel budget. Clamp sigma to
-  `sigmaMax`.
+  renders pass 2 at power 16, sigma 24 and blur 8, and warns when that frame passes 3,500,000 fuel.
+  Clamp sigma to `sigmaMax`.
 - Light with power above 0 and an empty mask wastes the pass and warns: fade the power to 0 before the
   mask runs out.
 - Frame 0 is the thumbnail, sampled at `heroPhase`. The check wants 90% of 48 hero frames distinct, so

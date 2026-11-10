@@ -83,7 +83,7 @@ Each round, look at:
 `references/contract.md` lists every check. In short:
 
 - compile errors, and traps in any pass;
-- frames over the fuel budget;
+- frames that run out of fuel, and frames above the fuel bar;
 - broken outputs, and inputs that do not do what they say;
 - one-shots that do not end empty or that go empty in the middle;
 - loops that do not wrap or that jump at the seam;

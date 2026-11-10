@@ -7,13 +7,16 @@ import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs"
 import { homedir } from "node:os"
 import { join, resolve } from "node:path"
 
-// The release the skill is written for. Noise masks, geometry and dynamic parts need it (materials
-// need 0.8); older releases still compile older sources.
-export const DEFAULT_VERSION = "0.9.0"
+// The release the skill is written for. Its templates, snippets and examples use the 1.0 spellings
+// (stream.push, noise.value, color.set_a, ...), which older releases do not compile; an older
+// release still compiles sources written for it.
+export const DEFAULT_VERSION = "1.0.0"
 const RELEASES = "https://github.com/jCzachor6/infinite-props/releases/download"
 
-export const platform = () => {
+/** The prebuilt SDK of a release for this machine; Macs with Intel processors have one from 1.0.0. */
+export const platform = (version = process.env.IPROP_VERSION || DEFAULT_VERSION) => {
   if (process.platform === "darwin" && process.arch === "arm64") return "macos-arm64"
+  if (process.platform === "darwin" && process.arch === "x64") return versionAtLeast(version, "1.0.0") ? "macos-x86_64" : null
   if (process.platform === "linux" && process.arch === "x64") return "linux-x86_64"
   if (process.platform === "win32" && process.arch === "x64") return "windows-x86_64"
   return null
@@ -51,7 +54,7 @@ export const findSdk = (version = process.env.IPROP_VERSION || DEFAULT_VERSION, 
   if (process.env.IPROP_SDK) return sdkAt(resolve(process.env.IPROP_SDK), null)
   const cached = sdkAt(join(cacheDir(), version), version)
   if (cached) return cached
-  const name = platform()
+  const name = platform(version)
   return allowFetch && name ? downloadSdk(version, name) : null
 }
 
@@ -87,7 +90,8 @@ export const requireSdk = (version, options) => {
     process.exit(2)
   }
   if (!sdk?.ipc || !sdk.ipgen) {
-    const where = platform() ? "allow the download" : `no prebuilt SDK for ${process.platform}/${process.arch}; build it from source`
+    const wanted = version || process.env.IPROP_VERSION || DEFAULT_VERSION
+    const where = platform(wanted) ? "allow the download" : `Infinite Props ${wanted} has no prebuilt SDK for ${process.platform}/${process.arch}; build it from source`
     console.error(`Infinite Props SDK not found: set IPROP_SDK to an unpacked SDK folder or ${where}`)
     process.exit(2)
   }

@@ -25,24 +25,25 @@ The effects are drawn at the scale of a 24x38 px character, seen from the side w
 left. Effects with a direction face right; mirror them for the left. The header of each `.ips` is its
 full documentation.
 
-**Fuel.** This is the peak per generation out of the 5,000,000 budget, measured by `check-fx` over seeds 1-6.
+**Fuel.** This is the peak per generation, measured by `check-fx` with Infinite Props 1.0.0 over seeds 1-6.
+The check warns above 3,500,000; a program compiled with 1.0 may spend 25,000,000.
 The baked figure includes pass 2 at the maximum light. All 13 pass with 48 of 48 hero frames distinct.
 
 | effect | sprite | mask | baked light |
 |---|---|---|---|
-| magic-circle | 54,891 | 47,021 | 2,014,682 |
-| portal | 132,649 | 90,911 | 1,813,617 |
-| explosion | 138,187 | 110,002 | 2,624,676 |
-| heal | 48,866 | 63,035 | 1,187,645 |
-| frost-nova | 204,424 | 178,250 | 2,681,075 |
-| hit-spark | 49,676 | 50,270 | 1,251,265 |
-| lightning-strike | 1,106,575 | 443,718 | 3,095,198 |
-| plasma-ball | 112,541 | 91,381 | 1,665,049 |
-| sword-slash | 120,492 | 105,934 | 2,039,556 |
-| poison-cloud | 35,428 | 21,960 | 1,005,147 |
-| fireball | 87,656 | 77,895 | 920,644 |
-| black-hole | 224,473 | 188,568 | 1,410,630 |
-| splash | 335,881 | 370,672 | 2,295,603 |
+| magic-circle | 53,921 | 46,051 | 2,013,628 |
+| portal | 129,953 | 88,922 | 1,811,509 |
+| explosion | 133,461 | 105,616 | 2,622,290 |
+| heal | 47,510 | 61,039 | 1,186,373 |
+| frost-nova | 194,336 | 168,216 | 2,673,099 |
+| hit-spark | 46,340 | 46,934 | 1,250,933 |
+| lightning-strike | 1,054,176 | 425,115 | 3,087,292 |
+| plasma-ball | 110,353 | 89,219 | 1,663,743 |
+| sword-slash | 117,380 | 102,838 | 2,037,400 |
+| poison-cloud | 35,022 | 21,698 | 1,004,803 |
+| fireball | 86,410 | 76,677 | 919,302 |
+| black-hole | 220,386 | 184,480 | 1,406,618 |
+| splash | 328,865 | 363,284 | 2,292,071 |
 
 The sprite and the mask cost little. The baked light costs most, and it grows with the canvas and sigma.
 The lightning strike is the heaviest: its canvas is the largest and it draws a whole tree three times

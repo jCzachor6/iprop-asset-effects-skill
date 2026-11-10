@@ -22,9 +22,9 @@ so rare looks stay rare:
 ```
 const distribution looks = weighted {1: 40, 2: 20, 3: 15, 4: 15, 5: 10}
 ...
-stream_push(hash(start ^ lookKey))
+stream.push(hash(start ^ lookKey))
 kind = 1 to 5 with looks
-stream_pop()
+stream.pop()
 ```
 
 **The tint input.** `rampFrom(tint)` builds the 8 steps from any colour: four shades from near-black,
@@ -38,7 +38,7 @@ which is why the template draws every pass inside `layer ...(alpha = surface.sou
 
 ```
 ink(c: color, a: f32) -> color {
-  return color.set.a(c, int(clamp(a, 0.0, 1.0) * float(c.a)))
+  return color.set_a(c, int(clamp(a, 0.0, 1.0) * float(c.a)))
 }
 ```
 
@@ -102,7 +102,7 @@ in the light's colour, at `amp` times its strength.
     ```
     loopNoise(phase: f32, lane: f32, key: i32) -> f32 {
       q = 6.28318 * phase
-      return noise(cos(q) * 1.6 + lane * 5.3, sin(q) * 1.6 + lane * 2.9, key)
+      return noise.value(cos(q) * 1.6 + lane * 5.3, sin(q) * 1.6 + lane * 2.9, key)
     }
     ```
 
@@ -114,9 +114,9 @@ in the light's colour, at `amp` times its strength.
   ```
   ticks = max(1, round(dur * 20.0))           // about 20 a second
   tick = int(floor(phase * float(ticks)))
-  stream_push(hash((start ^ crackleKey) + tick * 0x9e3779b1))
+  stream.push(hash((start ^ crackleKey) + tick * 0x9e3779b1))
   ...
-  stream_pop()
+  stream.pop()
   ```
 
   A one-shot can use `tick = int(t * 30.0)`.
@@ -127,11 +127,11 @@ in the light's colour, at `amp` times its strength.
 
 ```
 for i in 0..24 {
-  stream_push(hash((start ^ sparkKey) + i * 0x9e3779b1))
+  stream.push(hash((start ^ sparkKey) + i * 0x9e3779b1))
   ang = 0.0 to 6.2832
   spd = 60.0 to 160.0
   life = 0.3 to 0.7
-  stream_pop()
+  stream.pop()
   u = t / life
   if (u < 1.0) { ... }
 }
@@ -206,7 +206,7 @@ and fade (`ink(..., 1 - u)`) instead of popping off.
   offsets in eight swing 1.8 times as far. `pathAt` lays it across the line from `a` to `b` and bows it
   by a vector times `sin(pi u)`. Recursion is not allowed, so the levels are nested loops: forks off the
   trunk, forks off those, twigs off those. Each fork draws its shape from distributions, in a stream of
-  its own (`stream_push(hash(key + j * 0x9e3779b1))`), so adding one moves no other:
+  its own (`stream.push(hash(key + j * 0x9e3779b1))`), so adding one moves no other:
 
   ```ips
   const distribution rootAt = beta(1.3, 2.1)                       // where it leaves: the upper part favoured
@@ -239,7 +239,8 @@ and fade (`ink(..., 1 - u)`) instead of popping off.
 
 ## Fuel
 
-A generation has 5,000,000 fuel, and pass 2 spends most of it on blurs.
+A program compiled with 1.0 may spend 25,000,000 fuel per generation, but a game renders dozens of frames
+per effect: keep every frame under 3,500,000, the check's bar. Pass 2 spends most of it on blurs.
 
 - **Blurs**: one `.blur(s)` of a W×H layer costs about `W·H·(1 + 2K)`, with `K = 2·ceil(3s) + 1`. On a
   192x96 canvas, sigma 12 costs about 2.7 M and blur 4 about 0.9 M. That is why the template clamps sigma
@@ -259,7 +260,7 @@ A generation has 5,000,000 fuel, and pass 2 spends most of it on blurs.
   `x = 0.0` for a float.
 - `pick(a, b, c)` draws one argument from the current stream, and repeating one weights it:
   `pick(5, 6, 6, 8)`. `chance(p)` returns 1 or 0.
-- `noise(x, y, seed)` is value noise in 0..1. `noise.grad` is roughly -1..1.
+- `noise.value(x, y, seed)` is value noise in 0..1. `noise.grad` is roughly -1..1.
 - `atan2(y, x)` and `atan2(v)` both exist.
 - `from`, `layer`, `mask` and `clip` are reserved: don't name locals after them.
 - Inputs are visible only in `draw`: pass what helpers need as parameters. Helpers see consts, palettes

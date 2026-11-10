@@ -64,10 +64,10 @@ asset PoisonCloud {
   draw {
     start = seed
     // ---- timing: the seed's own frame count, or the one asked for ----------
-    stream_push(hash(start ^ timeKey))
+    stream.push(hash(start ^ timeKey))
     rolled = pick(18, 24, 36)
     rate = 15.0 to 18.0
-    stream_pop()
+    stream.pop()
     dur = float(rolled) / rate
     n = rolled
     if (frames >= 2) { n = min(frames, 64) }
@@ -77,12 +77,12 @@ asset PoisonCloud {
     phase = (float(f) - 1.0) / float(n)
 
     // ---- the look: roll everything, whatever the inputs --------------------
-    stream_push(hash(start ^ lookKey))
+    stream.push(hash(start ^ lookKey))
     kind = 1 to 3 with looks
     wide = 0.85 to 1.15 with gaussian(mean = 1.0, sigma = 0.08)
     tall = 0.85 to 1.15 with gaussian(mean = 1.0, sigma = 0.08)
     billows = 11 to 15
-    stream_pop()
+    stream.pop()
     cs = toxic
     if (kind == 2) { cs = venom }
     if (kind == 3) { cs = plague }
@@ -142,14 +142,14 @@ asset PoisonCloud {
     for coat in 0..4 {
       if (pass == 0 || coat >= 2) {
         for i in 0..billows {
-          stream_push(hash((start ^ billowKey) + i * 0x9e3779b1))
+          stream.push(hash((start ^ billowKey) + i * 0x9e3779b1))
           u = -1.0 to 1.0
           lift = 0.0 to 1.0
           size = 5.5 to 9.0
           bob = pick(1, 2)
           swell = pick(1, 2, 3)
           ph = 0.0 to 6.28318
-          stream_pop()
+          stream.pop()
           // Big billows low in the middle, smaller ones up top and out at the
           // ends, all sitting on the floor.
           x = cx + u * 26.0 * shape.x
@@ -176,7 +176,7 @@ asset PoisonCloud {
   wisps(start: i32, phase: f32, cs: list<color>, shape: vec2, pass: i32, amp: f32) {
     if (pass == 0) {
       for i in 0..10 {
-        stream_push(hash((start ^ wispKey) + i * 0x9e3779b1))
+        stream.push(hash((start ^ wispKey) + i * 0x9e3779b1))
         at = 0.0 to 1.0
         births = pick(1, 2)
         left = chance(0.5)
@@ -184,7 +184,7 @@ asset PoisonCloud {
         vy = 3.0 to 9.0
         size = 2.5 to 4.0
         y0 = 4.0 to 16.0
-        stream_pop()
+        stream.pop()
         u = fract(phase * float(births) + at)
         life = dur1(births)
         sg = 1.0
@@ -208,13 +208,13 @@ asset PoisonCloud {
   // in a ring of droplets.
   bubbles(start: i32, phase: f32, cs: list<color>, shape: vec2, pass: i32, amp: f32) {
     for i in 0..6 {
-      stream_push(hash((start ^ bubbleKey) + i * 0x9e3779b1))
+      stream.push(hash((start ^ bubbleKey) + i * 0x9e3779b1))
       at = 0.0 to 1.0
       births = pick(1, 2)
       u0 = -0.7 to 0.7
       top = 14.0 to 24.0
       size = 1.5 to 2.6
-      stream_pop()
+      stream.pop()
       u = fract(phase * float(births) + at)
       x = cx + u0 * 22.0 * shape.x
       if (u < 0.75) {
@@ -245,7 +245,7 @@ asset PoisonCloud {
   // ---- toolkit ---------------------------------------------------------------
   // The colour with its alpha scaled by a (clamped to 0..1).
   ink(c: color, a: f32) -> color {
-    return color.set.a(c, int(clamp(a, 0.0, 1.0) * float(c.a)))
+    return color.set_a(c, int(clamp(a, 0.0, 1.0) * float(c.a)))
   }
   // The fractional part: fract(phase * n + offset) repeats n times a loop.
   fract(x: f32) -> f32 {
@@ -253,7 +253,7 @@ asset PoisonCloud {
   }
   // Eight steps from a dark shade of the colour, through it, to white.
   rampFrom(c: color) -> list<color> {
-    base = color.set.a(c, 255)
+    base = color.set_a(c, 255)
     return [color.mix(#08060c, base, 0.2), color.mix(#08060c, base, 0.4), color.mix(#08060c, base, 0.62),
             color.mix(#08060c, base, 0.84), base, color.mix(base, #fff8e8, 0.35), color.mix(base, #fff8e8, 0.68), #ffffff]
   }

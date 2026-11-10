@@ -90,8 +90,9 @@ if (renderPass == 1) {           // the light mask
 ```
 
 Clamp the light before you use it: `power` 0..16, `sigma` 0..`sigmaMax` (12), `blur` 0..4. The check renders
-pass 2 at power 16, sigma 24 and blur 8, and it has to fit the 5,000,000 fuel budget. The bigger the canvas
-and the sigma, the more that pass costs, so the clamp on sigma is what keeps it inside.
+pass 2 at power 16, sigma 24 and blur 8, and that frame should stay under 3,500,000 fuel like any other.
+A 1.0 program may spend 25,000,000, but a game renders dozens of frames per effect. The bigger the canvas
+and the sigma, the more that pass costs, so the clamp on sigma is what keeps it cheap.
 
 Pass 2 paints each blurred layer `k = ceil(power)` times at `power / k` of its strength. That is the
 exposure curve of `references/light.md`: light that never clips past white, and the same light a game
@@ -102,17 +103,17 @@ computes from the mask.
 Roll the timing in a stream of its own, before anything else:
 
 ```
-stream_push(hash(start ^ timeKey))
+stream.push(hash(start ^ timeKey))
 rolled = pick(24, 30, 36)       // one-shot: the frame count
 dur = 1.55 to 1.75              // and how long it plays
-stream_pop()
+stream.pop()
 ```
 
 ```
-stream_push(hash(start ^ timeKey))
+stream.push(hash(start ^ timeKey))
 rolled = pick(18, 24, 36)       // loop: frames per cycle
 rate = 16.5 to 19.5             // and fps
-stream_pop()
+stream.pop()
 dur = float(rolled) / rate
 ```
 
@@ -146,7 +147,7 @@ dur = float(rolled) / rate
 ## Randomness
 
 - `start = seed` on the first line of `draw`. Every random draw happens inside a named stream:
-  - `stream_push(hash(start ^ lookKey))` for the look;
+  - `stream.push(hash(start ^ lookKey))` for the look;
   - `hash((start ^ sparkKey) + i * 0x9e3779b1)` for particle i.
 - Roll everything whatever the inputs. Make each roll whatever the branch, so a forced input never shifts
   the rolls after it.
@@ -167,9 +168,11 @@ dur = float(rolled) / rate
   - warns on an empty sprite mid-animation, light with an empty mask, a sprite touching an edge, and baked
     light cut by an edge.
 - **The inputs**: `frames`, `power`, `sigma` and `blur` must come back as forced. `frames = 6` must render.
-  The same seed and frame must render the same pixels. Pass 2 at the maximum light must fit the fuel budget.
+  The same seed and frame must render the same pixels. Pass 2 at the maximum light must render without
+  running out of fuel.
 - **The hero frames of seeds 1-48**: none may be empty, and they should differ.
-- **Fuel**: warns when any pass peaks above 3,500,000 of the 5,000,000 budget.
+- **Fuel**: warns when any pass peaks above 3,500,000 (`--fuel-warn`). That is the skill's bar for one
+  frame, far below the 25,000,000 a program compiled with 1.0 may spend.
 
 `PASS`, `WARN` or `FAIL` per effect; only `FAIL` exits 1. `--emit` writes `<name>.iprop` next to every effect
 that does not fail.

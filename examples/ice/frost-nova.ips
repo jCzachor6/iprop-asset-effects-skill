@@ -79,10 +79,10 @@ asset FrostNova {
   draw {
     start = seed
     // ---- timing: the seed's own frame count, or the one asked for ----------
-    stream_push(hash(start ^ timeKey))
+    stream.push(hash(start ^ timeKey))
     rolled = pick(24, 30, 36)
     dur = 2.0 to 2.4
-    stream_pop()
+    stream.pop()
     n = rolled
     if (frames >= 2) { n = min(frames, 64) }
     f = frame
@@ -90,13 +90,13 @@ asset FrostNova {
     t = (float(f) - 0.5) / float(n) * natural
 
     // ---- the look: roll everything, whatever the inputs --------------------
-    stream_push(hash(start ^ lookKey))
+    stream.push(hash(start ^ lookKey))
     kind = 1 to 3 with looks
     reach = 52.0 to 64.0
     spin = 3.0 to 5.0
     if (chance(0.5)) { spin = -spin }
     tall = 0.85 to 1.15 with gaussian(mean = 1.0, sigma = 0.08)
-    stream_pop()
+    stream.pop()
     cs = ice
     if (kind == 2) { cs = glacial }
     if (kind == 3) { cs = violet }
@@ -192,13 +192,13 @@ asset FrostNova {
   // spins up there, growing and brightening.
   gather(start: i32, t: f32, cs: list<color>, core: vec2, spin: f32, pass: i32, amp: f32) {
     for i in 0..12 {
-      stream_push(hash((start ^ streakKey) + i * 0x9e3779b1))
+      stream.push(hash((start ^ streakKey) + i * 0x9e3779b1))
       born = 0.0 to 0.2
       a = 0.0 to 6.28318
       d = 26.0 to 50.0
       life = 0.2 to 0.3
       pale = chance(0.5)
-      stream_pop()
+      stream.pop()
       age = t - born
       if (age >= 0.0 && age < life) {
         s = {cx + cos(a) * d, min(core.y + sin(a) * d * 0.8, floorY - 2.0)}
@@ -244,7 +244,7 @@ asset FrostNova {
   burst(start: i32, t: f32, cs: list<color>, core: vec2, pass: i32, amp: f32) {
     rel = t - charge
     for i in 0..16 {
-      stream_push(hash((start ^ shardKey) + i * 0x9e3779b1))
+      stream.push(hash((start ^ shardKey) + i * 0x9e3779b1))
       a = -3.14159 to 0.25
       v = 80.0 to 200.0
       life = 0.9 to 1.5
@@ -253,21 +253,21 @@ asset FrostNova {
       size = 1.2 to 2.6
       shade = 0 to 2
       dx = -3.0 to 3.0
-      stream_pop()
+      stream.pop()
       if (rel < life) {
         p = fly(core + {dx, 0.0}, {cos(a) * v, sin(a) * v}, rel, 0.6, grav * 0.7)
         shard(p, turn0 + twist * rel, size, cs[7 - shade], 1.0 - smoothstep(0.7, 1.0, rel / life), pass, amp)
       }
     }
     for i in 0..10 {
-      stream_push(hash((start ^ flakeKey) + i * 0x9e3779b1))
+      stream.push(hash((start ^ flakeKey) + i * 0x9e3779b1))
       a = -3.14159 to 0.0
       v = 30.0 to 110.0
       life = 1.2 to 1.8
       white = chance(0.6)
       size = 0.5 to 1.6
       sway = 0.0 to 6.28318
-      stream_pop()
+      stream.pop()
       if (rel < life) {
         p = drift(core, {cos(a) * v, sin(a) * v}, rel, sway)
         col = cs[6]
@@ -287,7 +287,7 @@ asset FrostNova {
       q0 = p + {cos(a), sin(a)} * size
       q1 = p + {cos(a + 2.5), sin(a + 2.5)} * (size * 0.5)
       q2 = p + {cos(a - 2.5), sin(a - 2.5)} * (size * 0.5)
-      poly(ink(col, k), q0.x, q0.y, q1.x, q1.y, q2.x, q2.y)
+      poly(q0.x, q0.y, q1.x, q1.y, q2.x, q2.y, ink(col, k))
       line(q1, q0, 1, ink(col, k))
     }
   }
@@ -364,7 +364,7 @@ asset FrostNova {
         for ring in 0..3 {
           count = 2 + ring
           for i in 0..count {
-            stream_push(hash((start ^ siteKey) + (side * 16 + ring * 5 + i) * 0x9e3779b1))
+            stream.push(hash((start ^ siteKey) + (side * 16 + ring * 5 + i) * 0x9e3779b1))
             jit = 0.2 to 0.8
             hr = 0.0 to 1.0
             wr = 0.0 to 1.0
@@ -377,7 +377,7 @@ asset FrostNova {
             k2 = 0.3 to 0.5
             k2h = 0.4 to 0.62
             k2l = 0.35 to 0.6
-            stream_pop()
+            stream.pop()
             if ((i + ring + side) % 2 == back) {
               q0 = 0.15
               q1 = 0.24
@@ -439,19 +439,19 @@ asset FrostNova {
       br = {x + w * 0.5, y}
       rb = {x - w * 0.08, y}
       if (pass == 0) {
-        if (fresh == 1) { poly(cs[7], bl.x, bl.y, tip.x, tip.y, br.x, br.y) }
+        if (fresh == 1) { poly(bl.x, bl.y, tip.x, tip.y, br.x, br.y, cs[7]) }
         else {
-          poly(cs[3], rb.x, rb.y, tip.x, tip.y, br.x, br.y)
-          poly(cs[5], bl.x, bl.y, tip.x, tip.y, rb.x, rb.y)
+          poly(rb.x, rb.y, tip.x, tip.y, br.x, br.y, cs[3])
+          poly(bl.x, bl.y, tip.x, tip.y, rb.x, rb.y, cs[5])
           line(br, tip, 1, cs[2])
           line(bl, tip, 1, cs[6])
           line(rb, tip, 1, cs[6])
           rect(floor(tip.x), floor(tip.y), 1.0, 1.0, cs[7])
         }
       } else {
-        if (fresh == 1) { poly(ink(cs[7], amp), bl.x, bl.y, tip.x, tip.y, br.x, br.y) }
+        if (fresh == 1) { poly(bl.x, bl.y, tip.x, tip.y, br.x, br.y, ink(cs[7], amp)) }
         else {
-          poly(ink(cs[5], 0.22 * amp), bl.x, bl.y, tip.x, tip.y, rb.x, rb.y)
+          poly(bl.x, bl.y, tip.x, tip.y, rb.x, rb.y, ink(cs[5], 0.22 * amp))
           line(rb, tip, 1, ink(cs[6], 0.5 * amp))
         }
       }
@@ -471,7 +471,7 @@ asset FrostNova {
   // floor.
   sprays(start: i32, t: f32, cs: list<color>, reach: f32, tall: f32, pass: i32, amp: f32) {
     for i in 0..24 {
-      stream_push(hash((start ^ shardKey) + (i + 40) * 0x9e3779b1))
+      stream.push(hash((start ^ shardKey) + (i + 40) * 0x9e3779b1))
       q = 0.15 to 0.9
       left = chance(0.5)
       a = -2.87 to -0.27
@@ -481,7 +481,7 @@ asset FrostNova {
       twist = -18.0 to 18.0
       size = 1.2 to 2.4
       shade = 0 to 2
-      stream_pop()
+      stream.pop()
       sg = 1.0
       if (left == 1) { sg = -1.0 }
       t0 = reachedAt(q * reach, reach)
@@ -542,7 +542,7 @@ asset FrostNova {
   puffs(start: i32, t: f32, cs: list<color>, reach: f32, pass: i32, amp: f32) {
     if (pass == 0) {
       for i in 0..16 {
-        stream_push(hash((start ^ puffKey) + i * 0x9e3779b1))
+        stream.push(hash((start ^ puffKey) + i * 0x9e3779b1))
         at = 0.0 to 1.0
         left = chance(0.5)
         vx = 15.0 to 55.0
@@ -551,7 +551,7 @@ asset FrostNova {
         size = 3.0 to 5.5
         pale = chance(0.7)
         mx = -0.8 to 0.8
-        stream_pop()
+        stream.pop()
         sg = 1.0
         if (left == 1) { sg = -1.0 }
         born = charge + spread * at
@@ -579,7 +579,7 @@ asset FrostNova {
   // Snow drifting down over the ice while it holds, swaying.
   snow(start: i32, t: f32, cs: list<color>, reach: f32, pass: i32, amp: f32) {
     for i in 0..10 {
-      stream_push(hash((start ^ flakeKey) + (i + 20) * 0x9e3779b1))
+      stream.push(hash((start ^ flakeKey) + (i + 20) * 0x9e3779b1))
       born = 0.0 to 1.0
       x = -1.0 to 1.0
       y = 28.0 to 60.0
@@ -588,7 +588,7 @@ asset FrostNova {
       white = chance(0.5)
       size = 0.5 to 1.4
       sway = 0.0 to 6.28318
-      stream_pop()
+      stream.pop()
       b = charge + 0.2 + (hold - 0.3 - charge - 0.2) * born
       age = t - b
       if (age > 0.0 && age < life) {
@@ -604,11 +604,11 @@ asset FrostNova {
   drips(start: i32, t: f32, cs: list<color>, reach: f32, tall: f32, pass: i32, amp: f32) {
     if (pass == 0 && t > hold) {
       for i in 0..10 {
-        stream_push(hash((start ^ dripKey) + i * 0x9e3779b1))
+        stream.push(hash((start ^ dripKey) + i * 0x9e3779b1))
         born = 0.0 to 1.0
         x = -0.85 to 0.85
         hgt = 3.0 to 12.0
-        stream_pop()
+        stream.pop()
         b = hold + melt * born
         age = t - b
         if (age > 0.0) {
@@ -656,7 +656,7 @@ asset FrostNova {
   }
   // The colour with its alpha scaled by a (clamped to 0..1).
   ink(c: color, a: f32) -> color {
-    return color.set.a(c, int(clamp(a, 0.0, 1.0) * float(c.a)))
+    return color.set_a(c, int(clamp(a, 0.0, 1.0) * float(c.a)))
   }
   // A fixed pseudo-random number in 0..1 for column x and lane k.
   rnd(x: f32, k: f32) -> f32 {
@@ -670,7 +670,7 @@ asset FrostNova {
   }
   // Eight steps from a dark shade of the colour, through it, to white.
   rampFrom(c: color) -> list<color> {
-    base = color.set.a(c, 255)
+    base = color.set_a(c, 255)
     return [color.mix(#08060c, base, 0.2), color.mix(#08060c, base, 0.4), color.mix(#08060c, base, 0.62),
             color.mix(#08060c, base, 0.84), base, color.mix(base, #fff8e8, 0.35), color.mix(base, #fff8e8, 0.68), #ffffff]
   }

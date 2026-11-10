@@ -71,10 +71,10 @@ asset MagicCircle {
   draw {
     start = seed
     // ---- timing: the seed's own frame count, or the one asked for ----------
-    stream_push(hash(start ^ timeKey))
+    stream.push(hash(start ^ timeKey))
     rolled = pick(21, 27, 33)
     dur = 1.4 to 1.8
-    stream_pop()
+    stream.pop()
     n = rolled
     if (frames >= 2) { n = min(frames, 64) }
     f = frame
@@ -82,7 +82,7 @@ asset MagicCircle {
     t = (float(f) - 0.5) / float(n) * natural
 
     // ---- the look: roll everything, whatever the inputs --------------------
-    stream_push(hash(start ^ lookKey))
+    stream.push(hash(start ^ lookKey))
     kind = 1 to 5 with looks
     radius = 40.0 to 50.0
     points = pick(5, 6, 6, 8)
@@ -90,7 +90,7 @@ asset MagicCircle {
     turn = 1.0
     if (chance(0.5)) { turn = -1.0 }
     q0 = 0.0 to 6.28318
-    stream_pop()
+    stream.pop()
     cs = arcane
     if (kind == 2) { cs = holy }
     if (kind == 3) { cs = infernal }
@@ -199,10 +199,10 @@ asset MagicCircle {
   // circle fires, and blinking out one by one as it fades.
   runeBand(start: i32, t: f32, cs: list<color>, radius: f32, spin: f32, turn: f32, drawn: f32, runes: i32, flash: f32, fade: f32, pass: i32, amp: f32) {
     for i in 0..runes {
-      stream_push(hash((start ^ runeKey) + i * 0x9e3779b1))
+      stream.push(hash((start ^ runeKey) + i * 0x9e3779b1))
       glyph = 0 to 4
       out = 0.0 to 1.0
-      stream_pop()
+      stream.pop()
       at = (float(i) + 0.5) / float(runes)
       if (at < drawn && t < fadeAt + 0.35 * out) {
         p = onFloor(radius - 7.0, spin + turn * tau * at)
@@ -291,14 +291,14 @@ asset MagicCircle {
 
   // A slice of the pillar from y0 (half width w0) up to y1 (half width w1).
   slab(y0: f32, y1: f32, w0: f32, w1: f32, col: color) {
-    poly(col, cx - w0, y0, cx + w0, y0, cx + w1, y1, cx - w1, y1)
+    poly(cx - w0, y0, cx + w0, y0, cx + w1, y1, cx - w1, y1, col)
   }
 
   // Motes streaming up out of the circle once it has fired, swaying, fading
   // as they climb.
   motes(start: i32, t: f32, cs: list<color>, radius: f32, fade: f32, pass: i32, amp: f32) {
     for i in 0..20 {
-      stream_push(hash((start ^ moteKey) + i * 0x9e3779b1))
+      stream.push(hash((start ^ moteKey) + i * 0x9e3779b1))
       late = 0.0 to 0.45
       q = 0.0 to 6.28318
       far = 0.2 to 0.95
@@ -306,7 +306,7 @@ asset MagicCircle {
       life = 0.4 to 0.8
       white = chance(0.35)
       sway = 0.0 to 6.28318
-      stream_pop()
+      stream.pop()
       age = t - fire - late
       if (age > 0.0 && age < life) {
         base = onFloor(radius * far, q)
@@ -340,7 +340,7 @@ asset MagicCircle {
   // ---- toolkit ---------------------------------------------------------------
   // The colour with its alpha scaled by a (clamped to 0..1).
   ink(c: color, a: f32) -> color {
-    return color.set.a(c, int(clamp(a, 0.0, 1.0) * float(c.a)))
+    return color.set_a(c, int(clamp(a, 0.0, 1.0) * float(c.a)))
   }
   // How far t is from a to b, clamped to 0..1.
   seg(t: f32, a: f32, b: f32) -> f32 {
@@ -352,7 +352,7 @@ asset MagicCircle {
   }
   // Eight steps from a dark shade of the colour, through it, to white.
   rampFrom(c: color) -> list<color> {
-    base = color.set.a(c, 255)
+    base = color.set_a(c, 255)
     return [color.mix(#08060c, base, 0.2), color.mix(#08060c, base, 0.4), color.mix(#08060c, base, 0.62),
             color.mix(#08060c, base, 0.84), base, color.mix(base, #fff8e8, 0.35), color.mix(base, #fff8e8, 0.68), #ffffff]
   }

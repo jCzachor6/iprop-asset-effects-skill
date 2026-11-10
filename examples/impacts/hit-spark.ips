@@ -67,10 +67,10 @@ asset HitSpark {
   draw {
     start = seed
     // ---- timing: the seed's own frame count, or the one asked for ----------
-    stream_push(hash(start ^ timeKey))
+    stream.push(hash(start ^ timeKey))
     rolled = pick(9, 12, 15)
     dur = 0.46 to 0.56
-    stream_pop()
+    stream.pop()
     n = rolled
     if (frames >= 2) { n = min(frames, 64) }
     f = frame
@@ -79,14 +79,14 @@ asset HitSpark {
     step = dur / float(n)
 
     // ---- the look: roll everything, whatever the inputs --------------------
-    stream_push(hash(start ^ lookKey))
+    stream.push(hash(start ^ lookKey))
     kind = 1 to 4 with looks
     aim = -0.15 to 0.3 with gaussian(mean = 0.06, sigma = 0.12)
     height = 16.0 to 24.0
     tilt = -0.08 to 0.08
     sparks = 7 to 11
     chips = 4 to 7
-    stream_pop()
+    stream.pop()
     cs = ember
     if (kind == 2) { cs = steel }
     if (kind == 3) { cs = arcane }
@@ -150,13 +150,13 @@ asset HitSpark {
 
   // The cross flare in its three stages, each at least one frame long.
   flare(start: i32, t: f32, step: f32, cs: list<color>, hit: vec2, a: f32, pass: i32, amp: f32) {
-    stream_push(hash(start ^ rayKey))
+    stream.push(hash(start ^ rayKey))
     l0 = 33.0 to 37.0
     l1 = 8.0 to 10.0
     l2 = 15.0 to 18.0
     l3 = 10.0 to 12.0
     l4 = 5.0 to 7.0
-    stream_pop()
+    stream.pop()
     if (t < max(0.035, step)) {
       // The flash: the whole cross round the diamond.
       ray(hit, a, l0, 2.2, 0.0, cs, 0, pass, amp)
@@ -198,16 +198,16 @@ asset HitSpark {
       b1 = p + dir * (len * u1)
       b2 = p + dir * (len * u2)
       tip = p + dir * len
-      poly(ink(side, k), a0.x + nrm.x * h0, a0.y + nrm.y * h0, b1.x + nrm.x * h1, b1.y + nrm.y * h1,
+      poly(a0.x + nrm.x * h0, a0.y + nrm.y * h0, b1.x + nrm.x * h1, b1.y + nrm.y * h1,
            b2.x + nrm.x * h2, b2.y + nrm.y * h2, tip.x, tip.y,
-           b2.x - nrm.x * h2, b2.y - nrm.y * h2, b1.x - nrm.x * h1, b1.y - nrm.y * h1, a0.x - nrm.x * h0, a0.y - nrm.y * h0)
+           b2.x - nrm.x * h2, b2.y - nrm.y * h2, b1.x - nrm.x * h1, b1.y - nrm.y * h1, a0.x - nrm.x * h0, a0.y - nrm.y * h0, ink(side, k))
       if (root < 0.3 && cool == 0) {
         // Next to the white root the sides run pale.
         m = p + dir * (len * 0.3)
         hm = min(1.0, w * pow(0.7, 1.6))
         hr = min(1.0, h0)
-        poly(ink(cs[5], k), a0.x + nrm.x * hr, a0.y + nrm.y * hr, m.x + nrm.x * hm, m.y + nrm.y * hm,
-             m.x - nrm.x * hm, m.y - nrm.y * hm, a0.x - nrm.x * hr, a0.y - nrm.y * hr)
+        poly(a0.x + nrm.x * hr, a0.y + nrm.y * hr, m.x + nrm.x * hm, m.y + nrm.y * hm,
+             m.x - nrm.x * hm, m.y - nrm.y * hm, a0.x - nrm.x * hr, a0.y - nrm.y * hr, ink(cs[5], k))
       }
     }
     // The spine in bands: white, then the pale, hot and warm tones.
@@ -234,21 +234,21 @@ asset HitSpark {
     k = 1.0
     if (pass == 1) { k = amp }
     e = r + 1.5
-    poly(ink(cs[3], k), x - e, y, x, y - e, x + e, y, x, y + e)
+    poly(x - e, y, x, y - e, x + e, y, x, y + e, ink(cs[3], k))
     e = r + 0.5
-    poly(ink(cs[6], k), x - e, y, x, y - e, x + e, y, x, y + e)
+    poly(x - e, y, x, y - e, x + e, y, x, y + e, ink(cs[6], k))
   }
 
   // A cone of sparks sprayed along the blow: white streaks that cool through
   // the ramp, fall, bounce off the floor and die.
   sparkSpray(start: i32, t: f32, dur: f32, cs: list<color>, hit: vec2, aim: f32, sparks: i32, pass: i32, amp: f32) {
     for i in 0..sparks {
-      stream_push(hash((start ^ sparkKey) + i * 0x9e3779b1))
+      stream.push(hash((start ^ sparkKey) + i * 0x9e3779b1))
       spread = -0.6 to 0.6
       v = 170.0 to 360.0
       life = 0.45 to 0.8
       late = 0.01 to 0.03
-      stream_pop()
+      stream.pop()
       a = aim + spread - 0.15
       life = life * dur
       age = t
@@ -271,13 +271,13 @@ asset HitSpark {
   // Hot chips knocked off: single pixels tumbling down to tick off the floor.
   chipSpray(start: i32, t: f32, dur: f32, cs: list<color>, hit: vec2, aim: f32, chips: i32, pass: i32, amp: f32) {
     for i in 0..chips {
-      stream_push(hash((start ^ chipKey) + i * 0x9e3779b1))
+      stream.push(hash((start ^ chipKey) + i * 0x9e3779b1))
       spread = -1.1 to 0.5
       v = 70.0 to 170.0
       up = 30.0 to 80.0
       life = 0.86 to 1.0
       shade = 0 to 3
-      stream_pop()
+      stream.pop()
       a = aim + spread - 0.3
       // The first chip lasts the whole effect, so the last frame still ticks.
       life = life * dur
@@ -315,11 +315,11 @@ asset HitSpark {
   // ---- toolkit ---------------------------------------------------------------
   // The colour with its alpha scaled by a (clamped to 0..1).
   ink(c: color, a: f32) -> color {
-    return color.set.a(c, int(clamp(a, 0.0, 1.0) * float(c.a)))
+    return color.set_a(c, int(clamp(a, 0.0, 1.0) * float(c.a)))
   }
   // Seven steps from a dark shade of the colour, through it, to white.
   rampFrom7(c: color) -> list<color> {
-    base = color.set.a(c, 255)
+    base = color.set_a(c, 255)
     return [color.mix(#08060c, base, 0.3), color.mix(#08060c, base, 0.66), color.mix(#08060c, base, 0.88),
             base, color.mix(base, #fff8e8, 0.45), color.mix(base, #fff8e8, 0.78), #ffffff]
   }

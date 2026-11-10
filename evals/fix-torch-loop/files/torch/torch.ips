@@ -41,7 +41,7 @@ asset Torch {
   palette cold = [#0b1030, #182a6a, #2156b0, #2f8ae0, #4fc4ff, #95e6ff, #d8f8ff, #ffffff]
 
   const f32 heroPhase = 0.0      // where frame 0 (the thumbnail) samples the cycle
-  const f32 sigmaMax = 12.0      // keeps renderPass 2 inside the fuel budget
+  const f32 sigmaMax = 12.0      // keeps renderPass 2 under the check's fuel bar
   const f32 cx = 32.0
   const f32 floorY = 90.0
 
@@ -53,10 +53,10 @@ asset Torch {
   draw {
     start = seed
     // ---- timing: the seed's own frame count, or the one asked for ----------
-    stream_push(hash(start ^ timeKey))
+    stream.push(hash(start ^ timeKey))
     rolled = pick(12, 18, 24)
     rate = 15.0 to 18.0
-    stream_pop()
+    stream.pop()
     // The cycle's length comes from the rolled count; forcing `frames` keeps
     // the motion and changes the frame rate.
     dur = float(rolled) / rate
@@ -69,19 +69,19 @@ asset Torch {
     phase = (float(f) - 1.0) / float(n)
 
     // ---- the look: roll everything, whatever the inputs --------------------
-    stream_push(hash(start ^ lookKey))
+    stream.push(hash(start ^ lookKey))
     useCold = chance(0.25)
     scale = 0.9 to 1.1 with gaussian(mean = 1.0, sigma = 0.05)
-    stream_pop()
+    stream.pop()
     cs = hot
     if (useCold == 1) { cs = cold }
     if (tint.a != 0) { cs = rampFrom(tint) }
 
     // ---- this frame's light ------------------------------------------------
     // The flicker: a new roll every frame.
-    stream_push(hash(start ^ (f * 7919)))
+    stream.push(hash(start ^ (f * 7919)))
     flick = 0.85 to 1.15
-    stream_pop()
+    stream.pop()
     lp = 2.2 * flick
     ls = 6.0
     lb = 1.5
@@ -140,10 +140,10 @@ asset Torch {
     }
     // Sparks rising off the tip.
     for i in 0..8 {
-      stream_push(hash((start ^ sparkKey) + i * 0x9e3779b1))
+      stream.push(hash((start ^ sparkKey) + i * 0x9e3779b1))
       offset = 0.0 to 1.0
       drift = -5.0 to 5.0
-      stream_pop()
+      stream.pop()
       age = fract(phase * 2.3 + offset)
       p = {cx + sway + drift * age, floorY - 58.0 - 26.0 * age}
       pixel(int(p.x), int(p.y), ink(tone(cs, 0.9 - 0.4 * age), (1.0 - age) * k))
@@ -158,7 +158,7 @@ asset Torch {
   }
   // The colour with its alpha scaled by a (clamped to 0..1).
   ink(c: color, a: f32) -> color {
-    return color.set.a(c, int(clamp(a, 0.0, 1.0) * float(c.a)))
+    return color.set_a(c, int(clamp(a, 0.0, 1.0) * float(c.a)))
   }
   // Fast in, slow out: 1 - (1 - u)^k on u clamped to 0..1.
   easeOut(u: f32, k: f32) -> f32 {
@@ -172,7 +172,7 @@ asset Torch {
   // circle, so phase 0 and 1 meet. lane separates independent signals.
   loopNoise(phase: f32, lane: f32, key: i32) -> f32 {
     q = 6.28318 * phase
-    return noise(cos(q) * 1.6 + lane * 5.3, sin(q) * 1.6 + lane * 2.9, key)
+    return noise.value(cos(q) * 1.6 + lane * 5.3, sin(q) * 1.6 + lane * 2.9, key)
   }
   // Slow in, fast out: u^k on u clamped to 0..1.
   easeIn(u: f32, k: f32) -> f32 {
@@ -184,18 +184,18 @@ asset Torch {
   }
   // Eight steps from a dark shade of the colour, through it, to white.
   rampFrom(c: color) -> list<color> {
-    base = color.set.a(c, 255)
+    base = color.set_a(c, 255)
     return [color.mix(#08060c, base, 0.2), color.mix(#08060c, base, 0.4), color.mix(#08060c, base, 0.62),
             color.mix(#08060c, base, 0.84), base, color.mix(base, #fff8e8, 0.35), color.mix(base, #fff8e8, 0.68), #ffffff]
   }
   // A speed-stretched streak: the body from tail to head, a hot head pixel.
-  streak(tail: vec2, head: vec2, hot: color, body: color, a: f32, pass: i32, amp: f32) {
+  streak(tail: vec2, head: vec2, lead: color, body: color, a: f32, pass: i32, amp: f32) {
     if (pass == 0) {
       line(tail, head, 1, ink(body, a))
-      pixel(int(head.x), int(head.y), ink(hot, max(a, 0.6)))
+      pixel(int(head.x), int(head.y), ink(lead, max(a, 0.6)))
     } else {
       line(tail, head, 1, ink(body, a * amp))
-      pixel(int(head.x), int(head.y), ink(hot, amp))
+      pixel(int(head.x), int(head.y), ink(lead, amp))
     }
   }
   // A star glint: a white centre and four tapering arms of length arm.
